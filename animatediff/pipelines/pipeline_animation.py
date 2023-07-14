@@ -29,6 +29,8 @@ from einops import rearrange
 
 from ..models.unet import UNet3DConditionModel
 
+from ..utils import overlap_policy
+from ..utils.path import get_absolute_path
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -242,8 +244,9 @@ class AnimationPipeline(DiffusionPipeline):
         latents = rearrange(latents, "b c f h w -> (b f) c h w")
         # video = self.vae.decode(latents).sample
         video = []
+        device = self._execution_device
         for frame_idx in tqdm(range(latents.shape[0])):
-            video.append(self.vae.decode(latents[frame_idx:frame_idx+1]).sample)
+            video.append(self.vae.decode(latents[frame_idx:frame_idx+1].to(device)).sample)
         video = torch.cat(video)
         video = rearrange(video, "(b f) c h w -> b c f h w", f=video_length)
         video = (video / 2 + 0.5).clamp(0, 1)
@@ -317,6 +320,9 @@ class AnimationPipeline(DiffusionPipeline):
         self,
         prompt: Union[str, List[str]],
         video_length: Optional[int],
+        temporal_context: Optional[int] = None,
+        strides: int = 3,
+        overlap: int = 4,
         height: Optional[int] = None,
         width: Optional[int] = None,
         num_inference_steps: int = 50,
@@ -330,6 +336,8 @@ class AnimationPipeline(DiffusionPipeline):
         return_dict: bool = True,
         callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
         callback_steps: Optional[int] = 1,
+        seq_policy=overlap_policy.uniform,
+        fp16=False,
         **kwargs,
     ):
         # Default height and width to unet
@@ -348,6 +356,7 @@ class AnimationPipeline(DiffusionPipeline):
             batch_size = len(prompt)
 
         device = self._execution_device
+        cpu = torch.device('cpu')
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
         # corresponds to doing no classifier free guidance.
@@ -356,7 +365,7 @@ class AnimationPipeline(DiffusionPipeline):
         # Encode input prompt
         prompt = prompt if isinstance(prompt, list) else [prompt] * batch_size
         if negative_prompt is not None:
-            negative_prompt = negative_prompt if isinstance(negative_prompt, list) else [negative_prompt] * batch_size 
+            negative_prompt = negative_prompt if isinstance(negative_prompt, list) else [negative_prompt] * batch_size
         text_embeddings = self._encode_prompt(
             prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt
         )
@@ -373,8 +382,8 @@ class AnimationPipeline(DiffusionPipeline):
             video_length,
             height,
             width,
-            text_embeddings.dtype,
-            device,
+            torch.float32,
+            cpu,  # using cpu to store latents allows generated frame amount not to be limited by vram but by ram
             generator,
             latents,
         )
@@ -382,28 +391,33 @@ class AnimationPipeline(DiffusionPipeline):
 
         # Prepare extra step kwargs.
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
-
+        total = sum(
+            len(list(seq_policy(i, num_inference_steps, latents.shape[2], temporal_context, strides, overlap)))
+            for i in range(len(timesteps))
+        )
         # Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
-        with self.progress_bar(total=num_inference_steps) as progress_bar:
+        with self.progress_bar(total=total) as progress_bar:
             for i, t in enumerate(timesteps):
-                # expand the latents if we are doing classifier free guidance
-                latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+                noise_pred = torch.zeros((latents.shape[0] * (2 if do_classifier_free_guidance else 1),
+                                          *latents.shape[1:]), device=latents.device, dtype=latents_dtype)
+                counter = torch.zeros((1, 1, latents.shape[2], 1, 1), device=latents.device, dtype=latents_dtype)
+                for seq in seq_policy(i, num_inference_steps, latents.shape[2], temporal_context, strides, overlap):
+                    # expand the latents if we are doing classifier free guidance
+                    latent_model_input = latents[:, :, seq].to(device)\
+                        .repeat(2 if do_classifier_free_guidance else 1, 1, 1, 1, 1)
+                    latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-                # predict the noise residual
-                noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample.to(dtype=latents_dtype)
-                # noise_pred = []
-                # import pdb
-                # pdb.set_trace()
-                # for batch_idx in range(latent_model_input.shape[0]):
-                #     noise_pred_single = self.unet(latent_model_input[batch_idx:batch_idx+1], t, encoder_hidden_states=text_embeddings[batch_idx:batch_idx+1]).sample.to(dtype=latents_dtype)
-                #     noise_pred.append(noise_pred_single)
-                # noise_pred = torch.cat(noise_pred)
+                    # predict the noise residual
+                    with torch.autocast('cuda', enabled=fp16, dtype=torch.float16):
+                        pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings)
+                    noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device=cpu)
+                    counter[:, :, seq] += 1
+                    progress_bar.update()
 
                 # perform guidance
                 if do_classifier_free_guidance:
-                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                    noise_pred_uncond, noise_pred_text = (noise_pred / counter).chunk(2)
                     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
                 # compute the previous noisy sample x_t -> x_t-1
@@ -411,7 +425,6 @@ class AnimationPipeline(DiffusionPipeline):
 
                 # call the callback, if provided
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
-                    progress_bar.update()
                     if callback is not None and i % callback_steps == 0:
                         callback(i, t, latents)
 
