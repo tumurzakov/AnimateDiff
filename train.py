@@ -123,7 +123,7 @@ def main(
 
     unet.requires_grad_(False)
     for name, module in unet.named_modules():
-        if name.endswith(tuple(trainable_modules)):
+        if "motion_modules" in name:
             for params in module.parameters():
                 params.requires_grad = True
 
