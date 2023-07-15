@@ -43,9 +43,9 @@ def main(
     validation_data: Dict,
     validation_steps: int = 100,
     trainable_modules: Tuple[str] = (
-        "attn1.to_q",
-        "attn2.to_q",
-        "attn_temp",
+        #"attn1.to_q",
+        #"attn2.to_q",
+        #"attn_temp",
     ),
     train_batch_size: int = 1,
     max_train_steps: int = 500,
