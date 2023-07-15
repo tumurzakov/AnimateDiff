@@ -43,9 +43,7 @@ def main(
     validation_data: Dict,
     validation_steps: int = 100,
     trainable_modules: Tuple[str] = (
-        #"attn1.to_q",
-        #"attn2.to_q",
-        #"attn_temp",
+        "to_q",
     ),
     train_batch_size: int = 1,
     max_train_steps: int = 500,
@@ -123,7 +121,7 @@ def main(
 
     unet.requires_grad_(False)
     for name, module in unet.named_modules():
-        if "motion_modules" in name:
+        if "motion_modules" in name and name.endswith(tuple(trainable_modules)):
             for params in module.parameters():
                 params.requires_grad = True
 
