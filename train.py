@@ -321,6 +321,8 @@ def main(
                     if accelerator.is_main_process:
                         save_path = os.path.join(output_dir, f"checkpoint-{global_step}")
                         accelerator.save_state(save_path)
+                        mm_save_path = os.path.join(output_dir, f"mm-checkpoint-{global_step}.pth")
+                        save_checkpoint(unet, mm_save_path)
                         logger.info(f"Saved state to {save_path}")
 
                 if global_step % validation_steps == 0:
@@ -364,17 +366,20 @@ def main(
             unet=unet,
         )
 
-        mm_state_dict = OrderedDict()
-        state_dict = unet.state_dict()
-        for key in state_dict:
-            if "motion_module" in key:
-                mm_state_dict[key] = state_dict[key]
-
         mm_path = "%s/mm.pth" % output_dir
-        accelerator.print(f"Saving checkpoint {mm_path}")
-        torch.save(mm_state_dict, mm_path)
+        save_checkpoint(unet, mm_path)
 
     accelerator.end_training()
+
+def save_checkpoint(unet, mm_path):
+    mm_state_dict = OrderedDict()
+    state_dict = unet.state_dict()
+    for key in state_dict:
+        if "motion_module" in key:
+            mm_state_dict[key] = state_dict[key]
+
+    accelerator.print(f"Saving checkpoint {mm_path}")
+    torch.save(mm_state_dict, mm_path)
 
 
 if __name__ == "__main__":
