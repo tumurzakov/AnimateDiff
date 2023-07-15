@@ -363,7 +363,7 @@ def main(
             unet=unet,
         )
 
-        state_dict = pipeline.state_dict()
+        state_dict = unet.state_dict()
         for key in state_dict:
             if "motion_module" not in key:
                 del state_dict[key]
