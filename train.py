@@ -68,8 +68,11 @@ def main(
     seed: Optional[int] = None,
 
     motion_module: str = "models/Motion_Module/mm_sd_v15.ckpt",
+    inference_config_path: str = "configs/inference/inference.yaml",
 ):
     *_, config = inspect.getargvalues(inspect.currentframe())
+
+    inference_config = OmegaConf.load(inference_config_path)
 
     accelerator = Accelerator(
         gradient_accumulation_steps=gradient_accumulation_steps,
@@ -107,7 +110,7 @@ def main(
     tokenizer = CLIPTokenizer.from_pretrained(pretrained_model_path, subfolder="tokenizer")
     text_encoder = CLIPTextModel.from_pretrained(pretrained_model_path, subfolder="text_encoder")
     vae = AutoencoderKL.from_pretrained(pretrained_model_path, subfolder="vae")
-    unet = UNet3DConditionModel.from_pretrained_2d(pretrained_model_path, subfolder="unet")
+    unet = UNet3DConditionModel.from_pretrained_2d(args.pretrained_model_path, subfolder="unet", unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs))
 
     motion_module_state_dict = torch.load(motion_module, map_location="cpu")
     if "global_step" in motion_module_state_dict: func_args.update({"global_step": motion_module_state_dict["global_step"]})
@@ -175,11 +178,9 @@ def main(
     # Get the validation pipeline
     validation_pipeline = AnimationPipeline(
         vae=vae, text_encoder=text_encoder, tokenizer=tokenizer, unet=unet,
-        scheduler=DDIMScheduler.from_pretrained(pretrained_model_path, subfolder="scheduler")
+        scheduler=DDIMScheduler(**OmegaConf.to_container(inference_config.noise_scheduler_kwargs)),
     )
     validation_pipeline.enable_vae_slicing()
-    ddim_inv_scheduler = DDIMScheduler.from_pretrained(pretrained_model_path, subfolder='scheduler')
-    ddim_inv_scheduler.set_timesteps(validation_data.num_inv_steps)
 
     # Scheduler
     lr_scheduler = get_scheduler(
