@@ -25,7 +25,7 @@ from transformers import CLIPTextModel, CLIPTokenizer
 
 from animatediff.models.unet import UNet3DConditionModel
 from tuneavideo.data.dataset import TuneAVideoDataset
-from anitatediff.pipelines.pipeline_animation import AnimationPipeline
+from animatediff.pipelines.pipeline_animation import AnimationPipeline
 from tuneavideo.util import save_videos_grid, ddim_inversion
 from einops import rearrange
 
