@@ -368,7 +368,9 @@ def main(
             if "motion_module" not in key:
                 del state_dict[key]
 
-        torch.save(state_dict, "%s/mm.pth" % output_dir)
+        mm_path = "%s/mm.pth" % output_dir
+        accelerator.print(f"Saving checkpoint {mm_path}")
+        torch.save(state_dict, mm_path)
 
     accelerator.end_training()
 
