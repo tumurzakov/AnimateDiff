@@ -6,6 +6,7 @@ import math
 import os
 from typing import Dict, Optional, Tuple
 from omegaconf import OmegaConf
+from collections import OrderedDict
 
 import torch
 import torch.nn.functional as F
@@ -363,14 +364,15 @@ def main(
             unet=unet,
         )
 
+        mm_state_dict = OrderedDict()
         state_dict = unet.state_dict()
         for key in state_dict:
-            if "motion_module" not in key:
-                del state_dict[key]
+            if "motion_module" in key:
+                mm_state_dict[key] = state_dict[key]
 
         mm_path = "%s/mm.pth" % output_dir
         accelerator.print(f"Saving checkpoint {mm_path}")
-        torch.save(state_dict, mm_path)
+        torch.save(mm_state_dict, mm_path)
 
     accelerator.end_training()
 
