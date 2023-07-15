@@ -376,7 +376,6 @@ def save_checkpoint(unet, mm_path):
         if "motion_module" in key:
             mm_state_dict[key] = state_dict[key]
 
-    accelerator.print(f"Saving checkpoint {mm_path}")
     torch.save(mm_state_dict, mm_path)
 
 
