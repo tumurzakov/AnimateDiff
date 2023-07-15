@@ -362,7 +362,13 @@ def main(
             vae=vae,
             unet=unet,
         )
-        pipeline.save_pretrained(output_dir)
+
+        state_dict = pipeline.state_dict()
+        for key in state_dict:
+            if "motion_module" not in key:
+                del state_dict[key]
+
+        torch.save(state_dict, "%s/mm.pth" % output_dir)
 
     accelerator.end_training()
 
