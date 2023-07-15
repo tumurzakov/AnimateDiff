@@ -319,9 +319,7 @@ def main(
 
                 if global_step % checkpointing_steps == 0:
                     if accelerator.is_main_process:
-                        save_path = os.path.join(output_dir, f"checkpoint-{global_step}")
-                        accelerator.save_state(save_path)
-                        mm_save_path = os.path.join(output_dir, f"mm-checkpoint-{global_step}.pth")
+                        mm_save_path = os.path.join(output_dir, f"mm-{global_step}.pth")
                         save_checkpoint(unet, mm_save_path)
                         logger.info(f"Saved state to {save_path}")
 
