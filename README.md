@@ -1,5 +1,9 @@
 # AnimateDiff
 
+<a target="_blank" href="https://colab.research.google.com/github/tumurzakov/AnimateDiff/blob/main/Fine_tune_AnimateDiff.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
+
 This repository is the official implementation of [AnimateDiff](https://arxiv.org/abs/2307.04725).
 
 **[AnimateDiff: Animate Your Personalized Text-to-Image Diffusion Models without Specific Tuning](https://arxiv.org/abs/2307.04725)**
