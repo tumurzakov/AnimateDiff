@@ -163,7 +163,7 @@ def main(
     )
 
     # Get the training dataset
-    train_dataset = TuneAVideoDataset(**train_data)
+    train_dataset = MultiTuneAVideoDataset(**train_data)
 
     # Preprocessing the dataset
     train_dataset.prompt_ids = [None] * len(train_dataset.prompt)
