@@ -180,7 +180,7 @@ def main(
     # Get the validation pipeline
     validation_pipeline = AnimationPipeline(
         vae=vae, text_encoder=text_encoder, tokenizer=tokenizer, unet=unet,
-        scheduler=DDIMScheduler(**OmegaConf.to_container(inference_config.noise_scheduler_kwargs)),
+        scheduler=DDIMScheduler(**OmegaConf.to_container(inference_config.noise_scheduler_kwargs['DDIMScheduler'])),
     )
     validation_pipeline.enable_vae_slicing()
     ddim_inv_scheduler = DDIMScheduler.from_pretrained(pretrained_model_path, subfolder='scheduler')
@@ -339,7 +339,7 @@ def main(
                                 num_inv_steps=validation_data.num_inv_steps, prompt="")[-1].to(weight_dtype)
                             torch.save(ddim_inv_latent, inv_latents_path)
 
-                        for idx, prompt in enumerate(validation_data.prompts):
+                        for idx, prompt in enumerate(set(validation_data.prompts)):
                             sample = validation_pipeline(prompt, generator=generator, latents=ddim_inv_latent,
                                                          **validation_data).videos
                             save_videos_grid(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
