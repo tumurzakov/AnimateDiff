@@ -68,6 +68,7 @@ def main(
 
     motion_module: str = "models/Motion_Module/mm_sd_v15.ckpt",
     inference_config_path: str = "configs/inference/inference.yaml",
+    motion_module_pe_multiplier: int = 1,
 ):
     *_, config = inspect.getargvalues(inspect.currentframe())
 
@@ -113,6 +114,15 @@ def main(
     unet = UNet3DConditionModel.from_pretrained_2d(pretrained_model_path, subfolder="unet", unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs))
 
     motion_module_state_dict = torch.load(motion_module, map_location="cpu")
+
+    # Multiply pe weights by multiplier for training more than 24 frames
+    if motion_module_pe_multiplier > 1:
+        for key in motion_module_state_dict:
+          if 'pe' in key:
+            t = motion_module_state_dict[key]
+            t = repeat(t, "b f d -> b (f m) d", m=motion_module_pe_multiplier)
+            motion_module_state_dict[key] = t
+
     if "global_step" in motion_module_state_dict: func_args.update({"global_step": motion_module_state_dict["global_step"]})
     missing, unexpected = unet.load_state_dict(motion_module_state_dict, strict=False)
     assert len(unexpected) == 0
