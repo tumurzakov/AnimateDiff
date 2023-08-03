@@ -28,7 +28,7 @@ from animatediff.models.unet import UNet3DConditionModel
 from tuneavideo.data.multi_dataset import MultiTuneAVideoDataset
 from animatediff.pipelines.pipeline_animation import AnimationPipeline
 from tuneavideo.util import save_videos_grid, ddim_inversion
-from einops import rearrange
+from einops import rearrange, repeat
 
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
