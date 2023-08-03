@@ -60,6 +60,7 @@ def main(
     gradient_accumulation_steps: int = 1,
     gradient_checkpointing: bool = True,
     checkpointing_steps: int = 500,
+    start_global_step: int = 0,
     resume_from_checkpoint: Optional[str] = None,
     mixed_precision: Optional[str] = "fp16",
     use_8bit_adam: bool = False,
@@ -241,7 +242,7 @@ def main(
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {max_train_steps}")
-    global_step = 0
+    global_step = start_global_step
     first_epoch = 0
 
     # Potentially load in the weights and states from a previous save
