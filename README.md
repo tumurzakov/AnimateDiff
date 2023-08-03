@@ -1,5 +1,23 @@
 # AnimateDiff
 
+## My Experience
+
+Here are some results of mine, ref [talesofai's folk](https://github.com/talesofai/AnimateDiff/blob/04b2715b39d4a02334b08cb6ee3dfe79f0a6cd7c/animatediff/pipelines/pipeline_animation.py#L288) and [diffusers](https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/deepfloyd_if/pipeline_if_img2img.py) to do image latent injection.
+
+<table>
+    <tr>
+    <td><img src="__assets__/animations/model_07/init.jpg"></td>
+    <td><img src="__assets__/animations/model_07/0802_v14.gif"></td>
+    <td><img src="__assets__/animations/model_07/0802_v15.gif"></td>
+    </tr>
+</table>
+<p style="margin-left: 2em; margin-top: -1em">
+Character Model：<a href="https://civitai.com/models/13237/genshen-impact-yoimiya">Yoimiya</a> 
+(with an initial reference image.)
+
+
+## Original README
+
 This repository is the official implementation of [AnimateDiff](https://arxiv.org/abs/2307.04725).
 
 **[AnimateDiff: Animate Your Personalized Text-to-Image Diffusion Models without Specific Tuning](https://arxiv.org/abs/2307.04725)**
