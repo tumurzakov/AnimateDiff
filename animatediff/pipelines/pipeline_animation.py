@@ -485,8 +485,8 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             video_length,
             height,
             width,
-            torch.float32,
-            cpu,  # using cpu to store latents allows generated frame amount not to be limited by vram but by ram
+            text_embeddings.dtype,
+            cpu if generator == None else generator.device,  # using cpu to store latents allows generated frame amount not to be limited by vram but by ram
             generator,
             latents,
         )
@@ -515,7 +515,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                     with torch.autocast('cuda', enabled=fp16, dtype=torch.float16):
                         pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings)
 
-                    noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device=latents.device)
+                    noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device=noise_pred.device)
                     counter[:, :, seq] += 1
                     progress_bar.update()
 

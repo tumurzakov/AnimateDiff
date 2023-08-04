@@ -351,7 +351,9 @@ def main(
                             torch.save(ddim_inv_latent, inv_latents_path)
 
                         for idx, prompt in enumerate(set(validation_data.prompts)):
-                            sample = validation_pipeline(prompt, generator=generator, latents=ddim_inv_latent,
+                            sample = validation_pipeline(prompt, generator=generator,
+                                                         latents=ddim_inv_latent,
+                                                         fp16=True,
                                                          **validation_data).videos
                             save_videos_grid(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
                             samples.append(sample)
