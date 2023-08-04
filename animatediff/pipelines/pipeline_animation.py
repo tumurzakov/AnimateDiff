@@ -384,10 +384,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
 
     def prepare_latents(self, batch_size, num_channels_latents, video_length, height, width, dtype, device, generator, latents=None):
         shape = (batch_size, num_channels_latents, video_length, height // self.vae_scale_factor, width // self.vae_scale_factor)
-
-        init_latents = None
-
-
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
                 f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
@@ -399,7 +395,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             if isinstance(generator, list):
                 shape = shape
                 # shape = (1,) + shape[1:]
-                # ignore init latents for batch model
                 latents = [
                     torch.randn(shape, generator=generator[i], device=rand_device, dtype=dtype)
                     for i in range(batch_size)
@@ -407,20 +402,13 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                 latents = torch.cat(latents, dim=0).to(device)
             else:
                 latents = torch.randn(shape, generator=generator, device=rand_device, dtype=dtype).to(device)
-                if init_latents is not None:
-                    for i in range(video_length):
-                        # I just feel dividing by 30 yield stable result but I don't know why
-                        # gradully reduce init alpha along video frames (loosen restriction)
-                        init_alpha = (video_length - float(i)) / video_length / 30
-                        latents[:, :, i, :, :] = init_latents * init_alpha + latents[:, :, i, :, :] * (1 - init_alpha)
         else:
             if latents.shape != shape:
                 raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
             latents = latents.to(device)
 
         # scale the initial noise by the standard deviation required by the scheduler
-        if init_latents is None:
-            latents = latents * self.scheduler.init_noise_sigma
+        latents = latents * self.scheduler.init_noise_sigma
         return latents
 
     @torch.no_grad()
@@ -503,8 +491,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             latents,
         )
         latents_dtype = latents.dtype
-
-        latents = latents.to('cuda')
 
         # Prepare extra step kwargs.
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
