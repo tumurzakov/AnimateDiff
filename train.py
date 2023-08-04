@@ -242,8 +242,13 @@ def main(
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {max_train_steps}")
-    global_step = start_global_step
+    global_step = 0
     first_epoch = 0
+
+    if start_global_step > 0:
+        global_step = start_global_step
+        first_epoch = global_step // num_update_steps_per_epoch
+        resume_step = global_step % num_update_steps_per_epoch
 
     # Potentially load in the weights and states from a previous save
     if resume_from_checkpoint:
