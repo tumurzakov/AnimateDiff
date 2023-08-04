@@ -2,7 +2,7 @@
 
 import inspect
 import os
-from typing import Callable, List, Optional, Union
+from typing import Callable, List, Optional, Union, Dict
 from dataclasses import dataclass
 
 import numpy as np
@@ -33,6 +33,9 @@ from ..models.unet import UNet3DConditionModel
 
 from ..utils import overlap_policy
 from ..utils.path import get_absolute_path
+from ..utils.textual_invertion_loader_mixin import TextualInversionLoaderMixin
+
+from compel import Compel, DiffusersTextualInversionManager
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -41,8 +44,7 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 class AnimationPipelineOutput(BaseOutput):
     videos: Union[torch.Tensor, np.ndarray]
 
-
-class AnimationPipeline(DiffusionPipeline):
+class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
     _optional_components = []
 
     def __init__(
@@ -124,6 +126,13 @@ class AnimationPipeline(DiffusionPipeline):
         self.default_tokens = len(self.tokenizer)
         self.scan_inversions = scan_inversions
 
+        textual_inversion_manager = DiffusersTextualInversionManager(self)
+        self.compel = Compel(
+            tokenizer=tokenizer,
+            text_encoder=text_encoder,
+            textual_inversion_manager=textual_inversion_manager,
+        )
+
     def update_embeddings(self):
         if not self.scan_inversions:
             return
@@ -203,6 +212,34 @@ class AnimationPipeline(DiffusionPipeline):
             if attention_mask is not None:
                 attention_mask = attention_mask[:, :self.tokenizer.model_max_length]
         return ids, attention_mask
+
+    def _encode_prompt_compel(self, prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt):
+        batch_size = len(prompt) if isinstance(prompt, list) else 1
+
+        self.update_embeddings()
+
+        text_embeddings = self.compel(prompt)
+
+        # duplicate text embeddings for each generation per prompt, using mps friendly method
+        bs_embed, seq_len, _ = text_embeddings.shape
+        text_embeddings = text_embeddings.repeat(1, num_videos_per_prompt, 1)
+        text_embeddings = text_embeddings.view(bs_embed * num_videos_per_prompt, seq_len, -1)
+
+        # get unconditional embeddings for classifier free guidance
+        if do_classifier_free_guidance:
+            uncond_embeddings = self.compel(negative_prompt)
+
+            # duplicate unconditional embeddings for each generation per prompt, using mps friendly method
+            seq_len = uncond_embeddings.shape[1]
+            uncond_embeddings = uncond_embeddings.repeat(1, num_videos_per_prompt, 1)
+            uncond_embeddings = uncond_embeddings.view(batch_size * num_videos_per_prompt, seq_len, -1)
+
+            # For classifier free guidance, we need to do two forward passes.
+            # Here we concatenate the unconditional and text embeddings into a single batch
+            # to avoid doing two forward passes
+            text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
+
+        return text_embeddings
 
     def _encode_prompt(self, prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt):
         batch_size = len(prompt) if isinstance(prompt, list) else 1
@@ -347,6 +384,10 @@ class AnimationPipeline(DiffusionPipeline):
 
     def prepare_latents(self, batch_size, num_channels_latents, video_length, height, width, dtype, device, generator, latents=None):
         shape = (batch_size, num_channels_latents, video_length, height // self.vae_scale_factor, width // self.vae_scale_factor)
+
+        init_latents = None
+
+
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
                 f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
@@ -358,6 +399,7 @@ class AnimationPipeline(DiffusionPipeline):
             if isinstance(generator, list):
                 shape = shape
                 # shape = (1,) + shape[1:]
+                # ignore init latents for batch model
                 latents = [
                     torch.randn(shape, generator=generator[i], device=rand_device, dtype=dtype)
                     for i in range(batch_size)
@@ -365,13 +407,20 @@ class AnimationPipeline(DiffusionPipeline):
                 latents = torch.cat(latents, dim=0).to(device)
             else:
                 latents = torch.randn(shape, generator=generator, device=rand_device, dtype=dtype).to(device)
+                if init_latents is not None:
+                    for i in range(video_length):
+                        # I just feel dividing by 30 yield stable result but I don't know why
+                        # gradully reduce init alpha along video frames (loosen restriction)
+                        init_alpha = (video_length - float(i)) / video_length / 30
+                        latents[:, :, i, :, :] = init_latents * init_alpha + latents[:, :, i, :, :] * (1 - init_alpha)
         else:
             if latents.shape != shape:
                 raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
             latents = latents.to(device)
 
         # scale the initial noise by the standard deviation required by the scheduler
-        latents = latents * self.scheduler.init_noise_sigma
+        if init_latents is None:
+            latents = latents * self.scheduler.init_noise_sigma
         return latents
 
     @torch.no_grad()
@@ -397,6 +446,7 @@ class AnimationPipeline(DiffusionPipeline):
         callback_steps: Optional[int] = 1,
         seq_policy=overlap_policy.uniform,
         fp16=False,
+        compel=False,
         **kwargs,
     ):
         # Default height and width to unet
@@ -425,9 +475,15 @@ class AnimationPipeline(DiffusionPipeline):
         prompt = prompt if isinstance(prompt, list) else [prompt] * batch_size
         if negative_prompt is not None:
             negative_prompt = negative_prompt if isinstance(negative_prompt, list) else [negative_prompt] * batch_size
-        text_embeddings = self._encode_prompt(
-            prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt
-        )
+
+        if not compel:
+          text_embeddings = self._encode_prompt(
+              prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt
+          )
+        else:
+          text_embeddings = self._encode_prompt_compel(
+              prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt
+          )
 
         # Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=device)
@@ -447,6 +503,8 @@ class AnimationPipeline(DiffusionPipeline):
             latents,
         )
         latents_dtype = latents.dtype
+
+        latents = latents.to('cuda')
 
         # Prepare extra step kwargs.
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
@@ -470,7 +528,8 @@ class AnimationPipeline(DiffusionPipeline):
                     # predict the noise residual
                     with torch.autocast('cuda', enabled=fp16, dtype=torch.float16):
                         pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings)
-                    noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device=cpu)
+
+                    noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device='cuda')
                     counter[:, :, seq] += 1
                     progress_bar.update()
 
