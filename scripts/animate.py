@@ -111,7 +111,7 @@ def main(args):
             pipeline.to("cuda")
             ### <<< create validation pipeline <<< ###
 
-            prompts      = model_config.prompt
+            prompts      = OmegaConf.to_container(model_config.prompt)
             n_prompts    = list(model_config.n_prompt) * len(prompts) if len(model_config.n_prompt) == 1 else model_config.n_prompt
 
             random_seeds = model_config.get("seed", [-1])
