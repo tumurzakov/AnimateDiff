@@ -43,7 +43,7 @@ def main(
     train_data: Dict,
     validation_data: Dict,
     validation_steps: int = 100,
-    train_whole_module: False,
+    train_whole_module: bool = False,
     trainable_modules: Tuple[str] = (
         "to_q",
     ),
