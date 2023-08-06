@@ -43,6 +43,7 @@ def main(
     train_data: Dict,
     validation_data: Dict,
     validation_steps: int = 100,
+    train_whole_module: False,
     trainable_modules: Tuple[str] = (
         "to_q",
     ),
@@ -134,7 +135,7 @@ def main(
 
     unet.requires_grad_(False)
     for name, module in unet.named_modules():
-        if "motion_modules" in name and name.endswith(tuple(trainable_modules)):
+        if "motion_modules" in name and (train_whole_module or name.endswith(tuple(trainable_modules))):
             for params in module.parameters():
                 params.requires_grad = True
 
