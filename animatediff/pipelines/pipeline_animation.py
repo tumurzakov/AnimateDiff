@@ -532,7 +532,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             height,
             width,
             torch.float32,
-            cpu,  # using cpu to store latents allows generated frame amount not to be limited by vram but by ram
+            cpu if generator == None else generator.device,
             generator,
             latents,
         )
