@@ -531,7 +531,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             video_length,
             height,
             width,
-            torch.float32,
+            torch.float32 if not fp16 else torch.float16,
             cpu if generator == None else generator.device,
             generator,
             latents,
