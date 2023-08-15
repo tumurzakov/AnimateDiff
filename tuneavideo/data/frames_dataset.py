@@ -15,7 +15,6 @@ from transformers import CLIPTokenizer
 class FramesDataset(Dataset):
     def __init__(
             self,
-            frames_path: Union[str, list[str]],
             prompt_map_path: Union[str, list[str]],
             width: int = 512,
             height: int = 512,
@@ -23,8 +22,6 @@ class FramesDataset(Dataset):
             sample_count: int = 1,
             tokenizer: CLIPTokenizer = None,
     ):
-        self.frames_path = [frames_path] if isinstance(frames_path, str) else frames_path
-
         self.width = width
         self.height = height
         self.video_length = video_length
@@ -37,6 +34,8 @@ class FramesDataset(Dataset):
 
         with open(prompt_map_path, 'r') as f:
             self.prompt_map = json.loads(f.read())
+
+        self.frames_path = [str(k) for k in self.prompt_map.keys()]
 
     def load(self):
         self.samples = []
