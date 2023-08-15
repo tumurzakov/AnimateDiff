@@ -103,6 +103,7 @@ class FramesDataset(Dataset):
             print("FramesDataset", "pick", "samples", len(samples))
 
             if len(samples) == self.sample_count:
+                print("FramesDataset", "pick", "done")
                 break
 
         return samples
