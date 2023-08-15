@@ -62,14 +62,7 @@ class FramesDataset(Dataset):
 
         samples = []
 
-        recursion_control = self.sample_count * 5
-
         while True:
-            recursion_control = recursion_control - 1
-
-            if recursion_control < 0:
-                raise Exception("Your dataset is garbage")
-
             key_frame = random.choice(candidates)
             print("FramesDataset", "pick", "key_frame", key_frame)
 
