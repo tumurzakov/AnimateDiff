@@ -108,7 +108,9 @@ class FramesDataset(Dataset):
                 'prompt_ids': input_ids,
             }
 
-            with open(f"{self.samples_dir}/{sample_index}.pkl", 'wb') as f:
+            sample_file = f"{self.samples_dir}/{sample_index}.pkl"
+            with open(sample_file, 'wb') as f:
+                print("FramesDataset", "pick", "sample_file", sample_file)
                 pickle.dump(sample, f)
 
             sample_index = sample_index + 1
@@ -187,6 +189,7 @@ if __name__ == "__main__":
     tokenizer = CLIPTokenizer.from_pretrained('runwayml/stable-diffusion-v1-5', subfolder="tokenizer")
 
     dataset = FramesDataset(
+        samples_dir = "test/FramesDataset/samples_dir",
         prompt_map_path = 'test/FramesDataset/prompt_map.json',
         width = 512,
         height = 512,
