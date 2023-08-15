@@ -79,9 +79,13 @@ class FramesDataset(Dataset):
 
             sample = np.array(sample)
 
+            print("FramesDataset", "pick", "reading sample", sample.shape)
+
             if not self.check(sample):
                 print("FramesDataset", "pick", "skip")
                 continue
+
+            print("FramesDataset", "pick", "checked")
 
             prompt = self.get_prompt(key_frame)
 
