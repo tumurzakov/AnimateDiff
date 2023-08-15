@@ -176,6 +176,7 @@ def main(
 
     # Get the training dataset
     train_dataset = FramesDataset(tokenizer=tokenizer, **train_data)
+    train_dataset.load()
 
     # DataLoaders creation:
     train_dataloader = torch.utils.data.DataLoader(
