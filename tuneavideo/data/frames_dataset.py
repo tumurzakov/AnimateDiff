@@ -107,6 +107,8 @@ class FramesDataset(Dataset):
                 'prompt_ids': input_ids,
             })
 
+            print("FramesDataset", "pick", "samples", len(samples))
+
             if len(samples) == self.sample_count:
                 break
 
