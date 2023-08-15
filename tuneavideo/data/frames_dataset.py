@@ -8,6 +8,7 @@ from PIL import Image, ImageFilter
 import numpy as np
 import cv2
 from scipy import ndimage
+import pickle
 
 from transformers import CLIPTokenizer
 
@@ -15,6 +16,7 @@ from transformers import CLIPTokenizer
 class FramesDataset(Dataset):
     def __init__(
             self,
+            samples_dir: str,
             prompt_map_path: Union[str, list[str]],
             width: int = 512,
             height: int = 512,
@@ -30,6 +32,7 @@ class FramesDataset(Dataset):
         self.video_length = video_length
         self.sample_count = sample_count
         self.tokenizer = tokenizer
+        self.samples_dir = samples_dir
 
         self.samples = []
 
@@ -43,25 +46,26 @@ class FramesDataset(Dataset):
         print("FramesDataset", "init", "frames_path", len(self.frames_path))
 
     def load(self):
+        def extract_integer(filename):
+            return int(filename.split('.')[0])
 
-        print("FramesDataset", "load")
-        self.samples = []
+        self.samples = sorted(os.listdir(self.samples_dir), key=extract_integer)
+
+    def prepare(self):
+        print("FramesDataset", "prepare")
 
         candidates = []
         for dir_path in self.frames_path:
             candidates = candidates + self.load_key_frames(dir_path)
 
-        print("FramesDataset", "load", "candidates", len(candidates))
+        print("FramesDataset", "prepare", "candidates", len(candidates))
 
-        self.samples = self.pick(self.sample_count, candidates)
-
-        print("FramesDataset", "load", "samples", len(self.samples))
+        self.pick(self.sample_count, candidates)
 
     def pick(self, count, candidates):
         print("FramesDataset", "pick", count, len(candidates))
 
-        samples = []
-
+        sample_index = 0
         while True:
             key_frame = random.choice(candidates)
             print("FramesDataset", "pick", "key_frame", key_frame)
@@ -97,16 +101,18 @@ class FramesDataset(Dataset):
                 return_tensors="pt"
             ).input_ids[0]
 
-            samples.append({
+            sample = {
                 'key_frame': key_frame,
                 'prompt': prompt,
                 'pixel_values': (sample / 127.5 - 1.0),
                 'prompt_ids': input_ids,
-            })
+            }
 
-            print("FramesDataset", "pick", "samples", len(samples))
+            with open(f"{self.samples_dir}/{sample_index}.pkl", 'wb') as f:
+                pickle.dump(sample, f)
 
-            if len(samples) == self.sample_count:
+            sample_index = sample_index + 1
+            if sample_index == self.sample_count:
                 print("FramesDataset", "pick", "done")
                 break
 
@@ -172,7 +178,9 @@ class FramesDataset(Dataset):
         return self.sample_count
 
     def __getitem__(self, index):
-        return self.samples[index]
+        pkl = self.samples[index]
+        with open(pkl, 'rb') as f:
+            return pickle.load(f)
 
 if __name__ == "__main__":
 
