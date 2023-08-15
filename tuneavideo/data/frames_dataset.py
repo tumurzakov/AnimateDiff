@@ -109,9 +109,8 @@ class FramesDataset(Dataset):
             }
 
             sample_file = f"{self.samples_dir}/{sample_index}.hkl"
-            with open(sample_file, 'wb') as f:
-                print("FramesDataset", "pick", "sample_file", sample_file)
-                hickle.dump(sample, f)
+            hickle.dump(sample, sample_file)
+            print("FramesDataset", "pick", "sample_file", sample_file)
 
             sample_index = sample_index + 1
             if sample_index == self.sample_count:
