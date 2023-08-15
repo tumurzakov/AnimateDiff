@@ -89,7 +89,7 @@ class FramesDataset(Dataset):
                 'key_frame': key_frame,
                 'prompt': prompt,
                 'pixel_values': (sample / 127.5 - 1.0),
-                'input_ids': input_ids,
+                'prompt_ids': input_ids,
             })
 
             if len(samples) == self.sample_count:
