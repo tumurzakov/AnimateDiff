@@ -8,7 +8,7 @@ from PIL import Image, ImageFilter
 import numpy as np
 import cv2
 from scipy import ndimage
-import pickle
+import hickle
 
 from transformers import CLIPTokenizer
 
@@ -111,7 +111,7 @@ class FramesDataset(Dataset):
             sample_file = f"{self.samples_dir}/{sample_index}.pkl"
             with open(sample_file, 'wb') as f:
                 print("FramesDataset", "pick", "sample_file", sample_file)
-                pickle.dump(sample, f)
+                hickle.dump(sample, f)
 
             sample_index = sample_index + 1
             if sample_index == self.sample_count:
@@ -182,7 +182,7 @@ class FramesDataset(Dataset):
     def __getitem__(self, index):
         pkl = self.samples[index]
         with open(pkl, 'rb') as f:
-            return pickle.load(f)
+            return hickle.load(f)
 
 if __name__ == "__main__":
 
