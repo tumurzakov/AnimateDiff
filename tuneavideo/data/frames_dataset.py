@@ -108,7 +108,7 @@ class FramesDataset(Dataset):
                 'prompt_ids': input_ids,
             }
 
-            sample_file = f"{self.samples_dir}/{sample_index}.hkl"
+            sample_file = f"{self.samples_dir}/{sample_index}.h5"
             hickle.dump(sample, sample_file)
             print("FramesDataset", "pick", "sample_file", sample_file)
 
