@@ -22,6 +22,9 @@ class FramesDataset(Dataset):
             sample_count: int = 1,
             tokenizer: CLIPTokenizer = None,
     ):
+
+        print("FramesDataset", "init", width, height, video_length, sample_count)
+
         self.width = width
         self.height = height
         self.video_length = video_length
@@ -37,16 +40,26 @@ class FramesDataset(Dataset):
 
         self.frames_path = [str(k) for k in self.prompt_map.keys()]
 
+        print("FramesDataset", "init", "frames_path", len(self.frames_path))
+
     def load(self):
+
+        print("FramesDataset", "load")
         self.samples = []
 
         candidates = []
         for dir_path in self.frames_path:
             candidates = candidates + self.load_key_frames(dir_path)
 
+        print("FramesDataset", "load", "candidates", len(candidates))
+
         self.samples = self.pick(self.sample_count, candidates)
 
+        print("FramesDataset", "load", "samples", len(self.samples))
+
     def pick(self, count, candidates):
+        print("FramesDataset", "pick", count, len(candidates))
+
         samples = []
 
         recursion_control = self.sample_count * 5
@@ -58,6 +71,7 @@ class FramesDataset(Dataset):
                 raise Exception("Your dataset is garbage")
 
             key_frame = random.choice(candidates)
+            print("FramesDataset", "pick", "key_frame", key_frame)
 
             dir_name = os.path.dirname(key_frame)
             file_name = os.path.basename(key_frame)
@@ -73,6 +87,7 @@ class FramesDataset(Dataset):
             sample = np.array(sample)
 
             if not self.check(sample):
+                print("FramesDataset", "pick", "skip")
                 continue
 
             prompt = self.get_prompt(key_frame)
@@ -98,6 +113,8 @@ class FramesDataset(Dataset):
         return samples
 
     def get_prompt(self, key_frame):
+        print("FramesDataset", "get_prompt", key_frame)
+
         dir_name = os.path.dirname(key_frame)
         file_name = os.path.basename(key_frame)
         number = int(file_name.split(".")[0])
@@ -106,8 +123,10 @@ class FramesDataset(Dataset):
             prompt_map = self.prompt_map[dir_name]
             for k in prompt_map:
                 if number >= int(k):
+                    print("FramesDataset", "get_prompt", k, prompt_map[k])
                     return prompt_map[k]
 
+        print("FramesDataset", "get_prompt", "not found")
         return prompt
 
     def check(self, sample):
@@ -127,6 +146,8 @@ class FramesDataset(Dataset):
         return np.array(image)
 
     def load_key_frames(self, dir_path):
+        print("FramesDataset", "load_key_frames", dir_path)
+
         if not os.path.isdir(dir_path):
             raise Exception("Dir not exist")
 
@@ -136,6 +157,7 @@ class FramesDataset(Dataset):
         candidates = []
 
         files = sorted(os.listdir(dir_path), key=extract_integer)
+        print("FramesDataset", "load_key_frames", "files", len(files))
         count = len(files)
         for index, file_name in enumerate(files):
             file_path = f"{dir_path}/{file_name}"
@@ -143,6 +165,7 @@ class FramesDataset(Dataset):
             if 'png' in file_name and index + self.video_length <= count:
                 candidates.append(file_path)
 
+        print("FramesDataset", "load_key_frames", "candidates", len(candidates))
         return candidates
 
     def __len__(self):
