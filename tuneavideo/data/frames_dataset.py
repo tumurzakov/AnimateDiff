@@ -155,23 +155,15 @@ if __name__ == "__main__":
 
     tokenizer = CLIPTokenizer.from_pretrained('runwayml/stable-diffusion-v1-5', subfolder="tokenizer")
 
-    frames_path = [
-            'test/FramesDataset/scene_changed',
-            'test/FramesDataset/scene_not_changed',
-    ]
+    dataset = FramesDataset(
+        prompt_map_path = 'test/FramesDataset/prompt_map.json',
+        width = 512,
+        height = 512,
+        video_length = 16,
+        sample_count = 1,
+        tokenizer = tokenizer
+    )
 
-    for path in frames_path:
-        print(path)
-        dataset = FramesDataset(
-            frames_path = path,
-            prompt_map_path = 'test/FramesDataset/prompt_map.json',
-            width = 512,
-            height = 512,
-            video_length = 16,
-            sample_count = 1,
-            tokenizer = tokenizer
-        )
-
-        dataset.load()
-        print(len(dataset), dataset[0]['key_frame'], dataset[0]['prompt'])
+    dataset.load()
+    print(len(dataset), dataset[0]['key_frame'], dataset[0]['prompt'])
 
