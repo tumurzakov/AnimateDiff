@@ -4,6 +4,8 @@ from torch.utils.data import Dataset
 import decord
 decord.bridge.set_bridge('torch')
 
+from einops import rearrange
+
 import random
 import os
 import json
@@ -27,6 +29,7 @@ class FramesDataset(Dataset):
             video_length: int = 16,
             sample_count: int = 1,
             sample_frame_rate: int = 8,
+            variance_threshold: int = 50,
             tokenizer: CLIPTokenizer = None,
     ):
 
@@ -39,6 +42,7 @@ class FramesDataset(Dataset):
         self.tokenizer = tokenizer
         self.samples_dir = samples_dir
         self.sample_frame_rate = sample_frame_rate
+        self.variance_threshold = variance_threshold
 
         self.samples = []
 
@@ -173,7 +177,7 @@ class FramesDataset(Dataset):
 
         first_diff = diffs[0]
         variance = np.var(diffs)**(1/2)/first_diff * 100
-        threshold = 50
+        threshold = self.variance_threshold
 
         return variance < threshold
 
@@ -228,9 +232,11 @@ if __name__ == "__main__":
         height = 512,
         video_length = 16,
         sample_count = 1,
-        tokenizer = tokenizer
+        tokenizer = tokenizer,
+        variance_threshold  = 40,
     )
 
-    dataset.load()
-    print(len(dataset), dataset[0]['key_frame'], dataset[0]['prompt'])
+    dataset.prepare()
+    #dataset.load()
+    #print(len(dataset), dataset[0]['key_frame'], dataset[0]['prompt'])
 
