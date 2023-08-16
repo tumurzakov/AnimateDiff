@@ -61,9 +61,19 @@ class FramesDataset(Dataset):
             if 'json' in file:
                 with open(file, 'r') as f:
                     sample = json.loads(f.read())
-                    sample['prompt_ids'] = torch.tensor(sample['prompt_ids'])
+                    sample['prompt_ids'] = self.tokenize(sample['prompt'])
                     self.samples.append(sample)
 
+    def tokenize(self, prompt):
+        input_ids = self.tokenizer(
+            prompt,
+            max_length=self.tokenizer.model_max_length,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt"
+        ).input_ids[0]
+
+        return imput_ids
 
     def prepare(self):
         print("FramesDataset", "prepare")
@@ -107,14 +117,6 @@ class FramesDataset(Dataset):
 
             prompt = self.get_prompt(key_frame)
 
-            input_ids = self.tokenizer(
-                prompt,
-                max_length=self.tokenizer.model_max_length,
-                padding="max_length",
-                truncation=True,
-                return_tensors="pt"
-            ).input_ids[0]
-
             sample_file = f"{self.samples_dir}/{sample_index}.mp4"
             self.write_video(sample, sample_file, self.sample_frame_rate)
             print("FramesDataset", "pick", "sample_file", sample_file)
@@ -125,7 +127,6 @@ class FramesDataset(Dataset):
                     'key_frame': key_frame,
                     'video_file': sample_file,
                     'prompt': prompt,
-                    'prompt_ids': input_ids.numpy(),
                 }))
             print("FramesDataset", "pick", "meta_file", meta_file)
 
