@@ -140,6 +140,11 @@ class FramesDataset(Dataset):
             for index, frame in enumerate(frames):
                 Image.fromarray(frame).save(f"{frames_dir}/{index}.png")
 
+            print(ffmpeg
+                .input(f"{frames_dir}/%d.png")
+                .output(video_file, vcodec='libx264', vf=f"fps={video_fps}")
+                .compile())
+
             (ffmpeg
                 .input(f"{frames_dir}/%d.png")
                 .output(video_file, vcodec='libx264', vf=f"fps={video_fps}")
