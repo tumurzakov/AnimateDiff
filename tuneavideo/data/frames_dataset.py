@@ -122,7 +122,7 @@ class FramesDataset(Dataset):
             with open(meta_file, 'w') as f:
                 f.write(json.dumps({
                     'key_frame': key_frame,
-                    'video_file': video_file,
+                    'video_file': sample_file,
                     'prompt': prompt,
                     'prompt_ids': input_ids,
                 }))
