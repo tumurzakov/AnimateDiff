@@ -76,7 +76,7 @@ class FramesDataset(Dataset):
             return_tensors="pt"
         ).input_ids[0]
 
-        return imput_ids
+        return input_ids
 
     def prepare(self):
         print("FramesDataset", "prepare")
