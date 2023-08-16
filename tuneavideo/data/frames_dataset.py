@@ -120,7 +120,7 @@ class FramesDataset(Dataset):
 
             meta_file = f"{self.samples_dir}/{sample_index}.json"
             with open(meta_file, 'w') as f:
-                f.write(json_dumps({
+                f.write(json.dumps({
                     'key_frame': key_frame,
                     'video_file': video_file,
                     'prompt': prompt,
