@@ -142,8 +142,7 @@ class FramesDataset(Dataset):
 
             (ffmpeg
                 .input(f"{frames_dir}/%d.png")
-                .filter('fps', fps=video_fps, round='up')
-                .output(video_file)
+                .output(video_file, **{'c:v': 'libx264', 'vf': f"fps={video_fps}"})
                 .run())
 
     def get_prompt(self, key_frame):
