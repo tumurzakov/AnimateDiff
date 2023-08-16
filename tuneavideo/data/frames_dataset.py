@@ -52,17 +52,20 @@ class FramesDataset(Dataset):
         print("FramesDataset", "init", "frames_path", len(self.frames_path))
 
     def load(self):
+        print("FramesDataset", "load", "samples_dir", self.samples_dir)
+
         def extract_integer(filename):
             return int(filename.split('.')[0])
 
         self.samples = []
         files = sorted(os.listdir(self.samples_dir), key=extract_integer)
-        for file in files:
-            if 'json' in file:
-                with open(file, 'r') as f:
+        for filename in files:
+            if 'json' in filename:
+                with open(f"{self.samples_dir}/{filename}", 'r') as f:
                     sample = json.loads(f.read())
                     sample['prompt_ids'] = self.tokenize(sample['prompt'])
                     self.samples.append(sample)
+        print("FramesDataset", "load", "samples", len(self.samples))
 
     def tokenize(self, prompt):
         input_ids = self.tokenizer(
