@@ -61,6 +61,7 @@ class FramesDataset(Dataset):
             if 'json' in file:
                 with open(file, 'r') as f:
                     sample = json.loads(f.read())
+                    sample['prompt_ids'] = torch.tensor(sample['prompt_ids'])
                     self.samples.append(sample)
 
 
@@ -124,7 +125,7 @@ class FramesDataset(Dataset):
                     'key_frame': key_frame,
                     'video_file': sample_file,
                     'prompt': prompt,
-                    'prompt_ids': input_ids,
+                    'prompt_ids': input_ids.numpy(),
                 }))
             print("FramesDataset", "pick", "meta_file", meta_file)
 
@@ -140,14 +141,10 @@ class FramesDataset(Dataset):
             for index, frame in enumerate(frames):
                 Image.fromarray(frame).save(f"{frames_dir}/{index}.png")
 
-            print(ffmpeg
-                .input(f"{frames_dir}/%d.png")
-                .output(video_file, vcodec='libx264', vf=f"fps={video_fps}")
-                .compile())
-
             (ffmpeg
                 .input(f"{frames_dir}/%d.png")
                 .output(video_file, vcodec='libx264', vf=f"fps={video_fps}")
+                .overwrite_output()
                 .run())
 
     def get_prompt(self, key_frame):
