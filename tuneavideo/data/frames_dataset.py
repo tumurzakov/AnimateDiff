@@ -140,10 +140,10 @@ class FramesDataset(Dataset):
             for index, frame in enumerate(frames):
                 Image.fromarray(frame).save(f"{frames_dir}/{index}.png")
 
-            print(ffmpeg
+            (ffmpeg
                 .input(f"{frames_dir}/%d.png")
-                .output(video_file, **{'c:v': 'libx264', 'vf': f"fps={video_fps}"})
-                .compile())
+                .output(video_file, vcodec='libx264', vf=f"fps={video_fps}")
+                .run())
 
     def get_prompt(self, key_frame):
         print("FramesDataset", "get_prompt", key_frame)
