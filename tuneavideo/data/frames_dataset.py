@@ -1,6 +1,9 @@
 from typing import Callable, List, Optional, Union
 from torch.utils.data import Dataset
 
+import decord
+decord.bridge.set_bridge('torch')
+
 import random
 import os
 import json
@@ -8,7 +11,8 @@ from PIL import Image, ImageFilter
 import numpy as np
 import cv2
 from scipy import ndimage
-import hickle
+import tempfile
+import ffmpeg
 
 from transformers import CLIPTokenizer
 
@@ -22,6 +26,7 @@ class FramesDataset(Dataset):
             height: int = 512,
             video_length: int = 16,
             sample_count: int = 1,
+            sample_frame_rate: int = 8,
             tokenizer: CLIPTokenizer = None,
     ):
 
@@ -33,6 +38,7 @@ class FramesDataset(Dataset):
         self.sample_count = sample_count
         self.tokenizer = tokenizer
         self.samples_dir = samples_dir
+        self.sample_frame_rate = sample_frame_rate
 
         self.samples = []
 
@@ -49,7 +55,14 @@ class FramesDataset(Dataset):
         def extract_integer(filename):
             return int(filename.split('.')[0])
 
-        self.samples = sorted(os.listdir(self.samples_dir), key=extract_integer)
+        self.samples = []
+        files = sorted(os.listdir(self.samples_dir), key=extract_integer)
+        for file in files:
+            if 'json' in file:
+                with open(file, 'r') as f:
+                    sample = json.loads(f.read())
+                    self.samples.append(sample)
+
 
     def prepare(self):
         print("FramesDataset", "prepare")
@@ -101,16 +114,19 @@ class FramesDataset(Dataset):
                 return_tensors="pt"
             ).input_ids[0]
 
-            sample = {
-                'key_frame': key_frame,
-                'prompt': prompt,
-                'pixel_values': (sample / 127.5 - 1.0),
-                'prompt_ids': input_ids,
-            }
-
-            sample_file = f"{self.samples_dir}/{sample_index}.h5"
-            hickle.dump(sample, sample_file)
+            sample_file = f"{self.samples_dir}/{sample_index}.mp4"
+            self.write_video(sample, sample_file, self.sample_frame_rate)
             print("FramesDataset", "pick", "sample_file", sample_file)
+
+            meta_file = f"{self.samples_dir}/{sample_index}.json"
+            with open(meta_file, 'w') as f:
+                f.write(json_dumps({
+                    'key_frame': key_frame,
+                    'video_file': video_file,
+                    'prompt': prompt,
+                    'prompt_ids': input_ids,
+                }))
+            print("FramesDataset", "pick", "meta_file", meta_file)
 
             sample_index = sample_index + 1
             if sample_index == self.sample_count:
@@ -118,6 +134,16 @@ class FramesDataset(Dataset):
                 break
 
         return samples
+
+    def write_video(self, frames, video_file, video_fps):
+        with tempfile.TemporaryDirectory() as frames_dir:
+            for index, frame in enumerate(frames):
+                frame.save(f"{frames_dir}/{index}.png")
+
+            (ffmpeg
+                .input(f"{frames_dir}/%d.png")
+                .filter('fps', fps=video_fps, round='up')
+                .output(video_file))
 
     def get_prompt(self, key_frame):
         print("FramesDataset", "get_prompt", key_frame)
@@ -179,9 +205,13 @@ class FramesDataset(Dataset):
         return self.sample_count
 
     def __getitem__(self, index):
-        pkl = self.samples[index]
-        with open(pkl, 'rb') as f:
-            return hickle.load(f)
+        meta = self.samples[index]
+        vr = decord.VideoReader(meta['video_file'])
+        sample_index = list(range(0, len(vr)))[:self.video_length]
+        video = vr.get_batch(sample_index)
+        video = rearrange(video, "f h w c -> f c h w")
+        meta['pixel_values'] = (video / 127.5 - 1.0)
+        return meta
 
 if __name__ == "__main__":
 
