@@ -135,8 +135,6 @@ class FramesDataset(Dataset):
                 print("FramesDataset", "pick", "done")
                 break
 
-        return samples
-
     def write_video(self, frames, video_file, video_fps):
         with tempfile.TemporaryDirectory() as frames_dir:
             for index, frame in enumerate(frames):
