@@ -138,7 +138,7 @@ class FramesDataset(Dataset):
     def write_video(self, frames, video_file, video_fps):
         with tempfile.TemporaryDirectory() as frames_dir:
             for index, frame in enumerate(frames):
-                frame.save(f"{frames_dir}/{index}.png")
+                Image.fromarray(frame).save(f"{frames_dir}/{index}.png")
 
             (ffmpeg
                 .input(f"{frames_dir}/%d.png")
