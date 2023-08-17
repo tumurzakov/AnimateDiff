@@ -27,6 +27,7 @@ class FramesDataset(Dataset):
             width: int = 512,
             height: int = 512,
             video_length: int = 16,
+            sample_start_index: int = 0,
             sample_count: int = 1,
             sample_frame_rate: int = 8,
             variance_threshold: int = 50,
@@ -41,6 +42,7 @@ class FramesDataset(Dataset):
         self.sample_count = sample_count
         self.tokenizer = tokenizer
         self.samples_dir = samples_dir
+        self.sample_start_index = sample_start_index
         self.sample_frame_rate = sample_frame_rate
         self.variance_threshold = variance_threshold
 
@@ -96,7 +98,7 @@ class FramesDataset(Dataset):
     def pick(self, count, candidates):
         print("FramesDataset", "pick", count, len(candidates))
 
-        sample_index = 0
+        sample_index = self.sample_start_index
         while True:
             key_frame = random.choice(candidates)
             print("FramesDataset", "pick", "key_frame", key_frame)
@@ -138,7 +140,7 @@ class FramesDataset(Dataset):
             print("FramesDataset", "pick", "meta_file", meta_file)
 
             sample_index = sample_index + 1
-            if sample_index == self.sample_count:
+            if sample_index == self.sample_start_index + self.sample_count:
                 print("FramesDataset", "pick", "done")
                 break
 
