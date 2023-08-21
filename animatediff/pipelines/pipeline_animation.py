@@ -646,18 +646,17 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         # Check inputs. Raise error if not correct
         self.check_inputs(prompt, height, width, callback_steps)
 
-        # self.check_cnet_inputs(
-        #     prompt,
-        #     image,
-        #     callback_steps,
-        #     negative_prompt,
-        #     prompt_embeds,
-        #     negative_prompt_embeds,
-        #     controlnet_conditioning_scale,
-        #     control_guidance_start,
-        #     control_guidance_end,
-        # )
-
+        self.check_cnet_inputs(
+            prompt,
+            image,
+            callback_steps,
+            negative_prompt,
+            prompt_embeds,
+            negative_prompt_embeds,
+            controlnet_conditioning_scale,
+            control_guidance_start,
+            control_guidance_end,
+        )
 
         # Define call parameters
         # batch_size = 1 if isinstance(prompt, str) else len(prompt)
