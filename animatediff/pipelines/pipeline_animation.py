@@ -36,6 +36,8 @@ from ..utils import overlap_policy
 from ..utils.path import get_absolute_path
 from ..utils.textual_invertion_loader_mixin import TextualInversionLoaderMixin
 
+from diffusers.image_processor import VaeImageProcessor
+
 from compel import Compel, DiffusersTextualInversionManager
 import PIL
 
@@ -138,6 +140,10 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             tokenizer=tokenizer,
             text_encoder=text_encoder,
             textual_inversion_manager=textual_inversion_manager,
+        )
+
+        self.control_image_processor = VaeImageProcessor(
+            vae_scale_factor=self.vae_scale_factor, do_convert_rgb=True, do_normalize=False
         )
 
     def update_embeddings(self):
