@@ -413,8 +413,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         image,
         callback_steps,
         negative_prompt=None,
-        prompt_embeds=None,
-        negative_prompt_embeds=None,
         controlnet_conditioning_scale=1.0,
         control_guidance_start=0.0,
         control_guidance_end=1.0,
@@ -437,7 +435,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             or is_compiled
             and isinstance(self.controlnet._orig_mod, ControlNetModel)
         ):
-            self.check_image(image, prompt, prompt_embeds)
+            self.check_image(image, prompt)
         elif (
             isinstance(self.controlnet, MultiControlNetModel)
             or is_compiled
@@ -456,7 +454,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                 )
 
             for image_ in image:
-                self.check_image(image_, prompt, prompt_embeds)
+                self.check_image(image_, prompt)
         else:
             assert False
 
@@ -486,7 +484,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         else:
             assert False
 
-    def check_image(self, image, prompt, prompt_embeds):
+    def check_image(self, image, prompt):
         image_is_pil = isinstance(image, PIL.Image.Image)
         image_is_tensor = isinstance(image, torch.Tensor)
         image_is_np = isinstance(image, np.ndarray)
@@ -515,8 +513,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             prompt_batch_size = 1
         elif prompt is not None and isinstance(prompt, list):
             prompt_batch_size = len(prompt)
-        elif prompt_embeds is not None:
-            prompt_batch_size = prompt_embeds.shape[0]
 
         if image_batch_size != 1 and image_batch_size != prompt_batch_size:
             raise ValueError(
@@ -651,8 +647,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             image,
             callback_steps,
             negative_prompt,
-            prompt_embeds,
-            negative_prompt_embeds,
             controlnet_conditioning_scale,
             control_guidance_start,
             control_guidance_end,
