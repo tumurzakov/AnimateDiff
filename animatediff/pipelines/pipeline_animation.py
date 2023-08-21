@@ -533,7 +533,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         do_classifier_free_guidance=False,
         guess_mode=False,
     ):
-        image = self.control_image_processor.preprocess(image, height=height, width=width).to(dtype=torch.float32)
+        #image = self.control_image_processor.preprocess(image, height=height, width=width).to(dtype=torch.float32)
 
         image = image.to(device=device, dtype=dtype)
 
