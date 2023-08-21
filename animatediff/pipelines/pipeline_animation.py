@@ -629,7 +629,8 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
 
         **kwargs,
     ):
-        controlnet = self.controlnet._orig_mod if is_compiled_module(self.controlnet) else self.controlnet
+        if self.controlnet:
+            controlnet = self.controlnet._orig_mod if is_compiled_module(self.controlnet) else self.controlnet
 
         # Default height and width to unet
         height = height or self.unet.config.sample_size * self.vae_scale_factor
