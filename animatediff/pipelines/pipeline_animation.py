@@ -712,26 +712,11 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
 
           final_text_embeddings.append(embeddings)
 
-        # 4. Prepare image
-        if isinstance(controlnet, ControlNetModel):
-            image = self.prepare_image(
-                image=image,
-                width=width,
-                height=height,
-                batch_size=batch_size * num_images_per_prompt,
-                num_images_per_prompt=num_images_per_prompt,
-                device=device,
-                dtype=controlnet.dtype,
-                do_classifier_free_guidance=do_classifier_free_guidance,
-                guess_mode=guess_mode,
-            )
-            height, width = image.shape[-2:]
-        elif isinstance(controlnet, MultiControlNetModel):
-            images = []
-
-            for image_ in image:
-                image_ = self.prepare_image(
-                    image=image_,
+        if self.controlnet != None:
+            # 4. Prepare image
+            if isinstance(controlnet, ControlNetModel):
+                image = self.prepare_image(
+                    image=image,
                     width=width,
                     height=height,
                     batch_size=batch_size * num_images_per_prompt,
@@ -741,13 +726,29 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                     do_classifier_free_guidance=do_classifier_free_guidance,
                     guess_mode=guess_mode,
                 )
+                height, width = image.shape[-2:]
+            elif isinstance(controlnet, MultiControlNetModel):
+                images = []
 
-                images.append(image_)
+                for image_ in image:
+                    image_ = self.prepare_image(
+                        image=image_,
+                        width=width,
+                        height=height,
+                        batch_size=batch_size * num_images_per_prompt,
+                        num_images_per_prompt=num_images_per_prompt,
+                        device=device,
+                        dtype=controlnet.dtype,
+                        do_classifier_free_guidance=do_classifier_free_guidance,
+                        guess_mode=guess_mode,
+                    )
 
-            image = images
-            height, width = image[0].shape[-2:]
-        else:
-            assert False
+                    images.append(image_)
+
+                image = images
+                height, width = image[0].shape[-2:]
+            else:
+                assert False
 
         # Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=device)
@@ -777,14 +778,15 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             for i in range(len(timesteps))
         )
 
-        # 7.1 Create tensor stating which controlnets to keep
-        controlnet_keep = []
-        for i in range(len(timesteps)):
-            keeps = [
-                1.0 - float(i / len(timesteps) < s or (i + 1) / len(timesteps) > e)
-                for s, e in zip(control_guidance_start, control_guidance_end)
-            ]
-            controlnet_keep.append(keeps[0] if isinstance(controlnet, ControlNetModel) else keeps)
+        if self.controlnet != None:
+            # 7.1 Create tensor stating which controlnets to keep
+            controlnet_keep = []
+            for i in range(len(timesteps)):
+                keeps = [
+                    1.0 - float(i / len(timesteps) < s or (i + 1) / len(timesteps) > e)
+                    for s, e in zip(control_guidance_start, control_guidance_end)
+                ]
+                controlnet_keep.append(keeps[0] if isinstance(controlnet, ControlNetModel) else keeps)
 
 
         # Denoising loop
