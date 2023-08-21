@@ -26,6 +26,7 @@ from diffusers.schedulers import (
     PNDMScheduler,
 )
 from diffusers.utils import deprecate, logging, BaseOutput
+from diffusers.pipelines.controlnet import MultiControlNetModel
 
 from einops import rearrange, repeat
 
@@ -36,6 +37,7 @@ from ..utils.path import get_absolute_path
 from ..utils.textual_invertion_loader_mixin import TextualInversionLoaderMixin
 
 from compel import Compel, DiffusersTextualInversionManager
+import PIL
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
