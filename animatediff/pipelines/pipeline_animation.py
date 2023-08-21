@@ -793,6 +793,8 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                 ]
                 controlnet_keep.append(keeps[0] if isinstance(controlnet, ControlNetModel) else keeps)
 
+            self.controlnet.to('cuda')
+
 
         # Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
