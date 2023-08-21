@@ -535,6 +535,8 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
     ):
         #image = self.control_image_processor.preprocess(image, height=height, width=width).to(dtype=torch.float32)
 
+        image = rearrange(image, 'b h w c -> b c h w')
+
         image = image.to(device=device, dtype=dtype)
 
         if do_classifier_free_guidance and not guess_mode:
