@@ -288,7 +288,7 @@ class VersatileAttention(CrossAttention):
         self, use_memory_efficient_attention_xformers: bool, attention_op: Optional[Callable] = None
     ):
         self.set_use_memory_efficient_attention_xformers = use_memory_efficient_attention_xformers
-
+        self._memory_efficient_attention_xformers = attention_op
 
     def forward(self, hidden_states, encoder_hidden_states=None, attention_mask=None, video_length=None):
         batch_size, sequence_length, _ = hidden_states.shape
