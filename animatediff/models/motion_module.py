@@ -256,8 +256,6 @@ class VersatileAttention(CrossAttention):
         ):
         super().__init__(*args, **kwargs)
 
-        self.num_heads = channels // num_head_channels if num_head_channels is not None else 1
-
         assert attention_mode == "Temporal"
 
         self.attention_mode = attention_mode
