@@ -587,7 +587,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
 
         # scale the initial noise by the standard deviation required by the scheduler
         if init_latents is None:
-            latents = latents * self.scheduler.init_noise_sigma
+            latents = latents * self.scheduler.init_noise_sigma.to(device)
         return latents
 
     @torch.no_grad()
