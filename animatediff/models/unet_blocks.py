@@ -402,7 +402,7 @@ class CrossAttnDownBlock3D(nn.Module):
                 hidden_states = motion_module(hidden_states, temb, encoder_hidden_states=encoder_hidden_states) if motion_module is not None else hidden_states
 
             # apply additional residuals to the output of the last pair of resnet and attention blocks
-            if i == len(blocks) - 1 and additional_residuals is not None:
+            if additional_residuals is not None and i == len(blocks) - 1:
                 hidden_states = hidden_states + additional_residuals
 
             output_states += (hidden_states,)
