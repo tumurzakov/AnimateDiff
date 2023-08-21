@@ -660,7 +660,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                 [part_prompt], device, num_videos_per_prompt,
                 do_classifier_free_guidance, negative_prompt
             )
-            parted_text_embeddings[start_frame] = embeddings
+            parted_text_embeddings[int(start_frame)] = embeddings
         else:
           text_embeddings = self._encode_prompt(
               compel,
@@ -727,8 +727,8 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             video_length,
             height,
             width,
-            torch.float32 if not fp16 else torch.float16,
-            cpu if generator == None else generator.device,
+            torch.float32,
+            cpu,  # using cpu to store latents allows generated frame amount not to be limited by vram but by ram
             generator,
             latents,
         )
