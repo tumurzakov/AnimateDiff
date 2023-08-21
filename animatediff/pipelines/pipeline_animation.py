@@ -582,7 +582,8 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         else:
             if latents.shape != shape:
                 raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
-            latents = latents.to(device)
+
+        latents = latents.to(device)
 
         # scale the initial noise by the standard deviation required by the scheduler
         if init_latents is None:
