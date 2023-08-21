@@ -288,7 +288,16 @@ class VersatileAttention(CrossAttention):
         self, use_memory_efficient_attention_xformers: bool, attention_op: Optional[Callable] = None
     ):
         self._use_memory_efficient_attention_xformers = use_memory_efficient_attention_xformers
-        self._memory_efficient_attention_xformers = xformers.ops.memory_efficient_attention
+
+    def _memory_efficient_attention_xformers(self, query, key, value, attention_mask):
+        # TODO attention_mask
+        query = query.contiguous()
+        key = key.contiguous()
+        value = value.contiguous()
+        hidden_states = xformers.ops.memory_efficient_attention(query, key, value, attn_bias=attention_mask)
+        hidden_states = self.reshape_batch_dim_to_heads(hidden_states)
+        return hidden_states
+
 
     def forward(self, hidden_states, encoder_hidden_states=None, attention_mask=None, video_length=None):
         batch_size, sequence_length, _ = hidden_states.shape
