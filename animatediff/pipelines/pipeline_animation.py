@@ -646,15 +646,16 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         # Check inputs. Raise error if not correct
         self.check_inputs(prompt, height, width, callback_steps)
 
-        self.check_cnet_inputs(
-            prompt,
-            image,
-            callback_steps,
-            negative_prompt,
-            controlnet_conditioning_scale,
-            control_guidance_start,
-            control_guidance_end,
-        )
+        if self.controlnet != None:
+            self.check_cnet_inputs(
+                prompt,
+                image,
+                callback_steps,
+                negative_prompt,
+                controlnet_conditioning_scale,
+                control_guidance_start,
+                control_guidance_end,
+            )
 
         # Define call parameters
         # batch_size = 1 if isinstance(prompt, str) else len(prompt)
@@ -731,7 +732,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                     do_classifier_free_guidance=do_classifier_free_guidance,
                     guess_mode=guess_mode,
                 )
-                height, width = image.shape[-2:]
             elif isinstance(controlnet, MultiControlNetModel):
                 images = []
 
@@ -751,7 +751,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                     images.append(image_)
 
                 image = images
-                height, width = image[0].shape[-2:]
             else:
                 assert False
 
@@ -835,6 +834,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                                 controlnet_cond_scale = controlnet_cond_scale[0]
                             cond_scale = controlnet_cond_scale * controlnet_keep[i]
 
+                        control_model_input = rearrange(control_model_input, "b c f h w -> (b f) c h w")
                         down_block_res_samples, mid_block_res_sample = self.controlnet(
                             control_model_input,
                             t,
@@ -844,6 +844,17 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                             guess_mode=guess_mode,
                             return_dict=False,
                         )
+
+                        for i in range(len(down_block_res_samples)):
+                            down_block_res_samples[i] = rearrange(
+                                    down_block_res_samples[i],
+                                    '(b f) c h w -> b c f h w',
+                                    f=video_length)
+
+                        mid_block_res_sample = rearrange(
+                                mid_block_res_sample,
+                                '(b f) c h w -> b c f h w',
+                                f=video_length)
 
                         if guess_mode and do_classifier_free_guidance:
                             # Infered ControlNet only for the conditional batch.
