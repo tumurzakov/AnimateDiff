@@ -610,6 +610,12 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         seq_policy=overlap_policy.uniform,
         fp16=False,
         compel=False,
+        controlnet_conditioning_scale: Union[float, List[float]] = 1.0,
+        guess_mode: bool = False,
+        control_guidance_start: Union[float, List[float]] = 0.0,
+        control_guidance_end: Union[float, List[float]] = 1.0,
+        num_images_per_prompt: Optional[int] = 1,
+
         **kwargs,
     ):
         controlnet = self.controlnet._orig_mod if is_compiled_module(self.controlnet) else self.controlnet
@@ -639,12 +645,13 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         if isinstance(controlnet, MultiControlNetModel) and isinstance(controlnet_conditioning_scale, float):
             controlnet_conditioning_scale = [controlnet_conditioning_scale] * len(controlnet.nets)
 
-        global_pool_conditions = (
-            controlnet.config.global_pool_conditions
-            if isinstance(controlnet, ControlNetModel)
-            else controlnet.nets[0].config.global_pool_conditions
-        )
-        guess_mode = guess_mode or global_pool_conditions
+        if self.controlnet != None:
+            global_pool_conditions = (
+                controlnet.config.global_pool_conditions
+                if isinstance(controlnet, ControlNetModel)
+                else controlnet.nets[0].config.global_pool_conditions
+            )
+            guess_mode = guess_mode or global_pool_conditions
 
         # Encode input prompt
         prompt = prompt if isinstance(prompt, list) else [prompt] * batch_size
