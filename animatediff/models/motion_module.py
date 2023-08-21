@@ -284,6 +284,12 @@ class VersatileAttention(CrossAttention):
         tensor = tensor.permute(0, 2, 1, 3).reshape(batch_size // head_size, seq_len, dim * head_size)
         return tensor
 
+    def set_use_memory_efficient_attention_xformers(
+        self, use_memory_efficient_attention_xformers: bool, attention_op: Optional[Callable] = None
+    ):
+        self.set_use_memory_efficient_attention_xformers = use_memory_efficient_attention_xformers
+
+
     def forward(self, hidden_states, encoder_hidden_states=None, attention_mask=None, video_length=None):
         batch_size, sequence_length, _ = hidden_states.shape
 
