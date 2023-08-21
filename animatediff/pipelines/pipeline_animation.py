@@ -774,7 +774,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         )
         latents_dtype = latents.dtype
 
-        latents = latents.to('cuda')
+        latents = latents.to(device)
 
         # Prepare extra step kwargs.
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
@@ -793,7 +793,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                 ]
                 controlnet_keep.append(keeps[0] if isinstance(controlnet, ControlNetModel) else keeps)
 
-            self.controlnet.to('cuda')
+            self.controlnet.to(device, dtype=latents.dtype)
 
 
         # Denoising loop
