@@ -41,6 +41,8 @@ from diffusers.image_processor import VaeImageProcessor
 from compel import Compel, DiffusersTextualInversionManager
 import PIL
 
+import torch.nn.functional as F
+
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
