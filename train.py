@@ -26,6 +26,7 @@ from transformers import CLIPTextModel, CLIPTokenizer
 
 from animatediff.models.unet import UNet3DConditionModel
 from tuneavideo.data.frames_dataset import FramesDataset
+from tuneavideo.data.multi_dataset import MultiTuneAVideoDataset
 from animatediff.pipelines.pipeline_animation import AnimationPipeline
 from tuneavideo.util import save_videos_grid, ddim_inversion
 from einops import rearrange, repeat
@@ -71,6 +72,7 @@ def main(
     motion_module: str = "models/Motion_Module/mm_sd_v15.ckpt",
     inference_config_path: str = "configs/inference/inference.yaml",
     motion_module_pe_multiplier: int = 1,
+    dataset_class: str = 'MultiTuneAVideoDataset',
 ):
     *_, config = inspect.getargvalues(inspect.currentframe())
 
@@ -177,8 +179,19 @@ def main(
     )
 
     # Get the training dataset
-    train_dataset = FramesDataset(tokenizer=tokenizer, **train_data)
-    train_dataset.load()
+    train_dataset = None
+    if dataset_class == 'MultiTuneAVideoDataset':
+        train_dataset = MultiTuneAVideoDataset(**train_data)
+
+        # Preprocessing the dataset
+        train_dataset.prompt_ids = [None] * len(train_dataset.prompt)
+        for index, prompt in enumerate(train_dataset.prompt):
+            train_dataset.prompt_ids[index] = tokenizer(
+                prompt,max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
+            ).input_ids[0]
+    else:
+        train_dataset = FramesDataset(tokenizer=tokenizer, **train_data)
+        train_dataset.load()
 
     # DataLoaders creation:
     train_dataloader = torch.utils.data.DataLoader(
