@@ -401,7 +401,18 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                 f" {type(callback_steps)}."
             )
 
-    def check_cnet_inputs(self, prompt, height, width, callback_steps):
+    def check_cnet_inputs(
+        self,
+        prompt,
+        image,
+        callback_steps,
+        negative_prompt=None,
+        prompt_embeds=None,
+        negative_prompt_embeds=None,
+        controlnet_conditioning_scale=1.0,
+        control_guidance_start=0.0,
+        control_guidance_end=1.0,
+    ):
         # `prompt` needs more sophisticated handling when there are multiple
         # conditionings.
         if isinstance(self.controlnet, MultiControlNetModel):
@@ -627,6 +638,19 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         # Check inputs. Raise error if not correct
         self.check_inputs(prompt, height, width, callback_steps)
 
+        # self.check_cnet_inputs(
+        #     prompt,
+        #     image,
+        #     callback_steps,
+        #     negative_prompt,
+        #     prompt_embeds,
+        #     negative_prompt_embeds,
+        #     controlnet_conditioning_scale,
+        #     control_guidance_start,
+        #     control_guidance_end,
+        # )
+
+
         # Define call parameters
         # batch_size = 1 if isinstance(prompt, str) else len(prompt)
         batch_size = 1
@@ -642,10 +666,11 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         # corresponds to doing no classifier free guidance.
         do_classifier_free_guidance = guidance_scale > 1.0
 
-        if isinstance(controlnet, MultiControlNetModel) and isinstance(controlnet_conditioning_scale, float):
-            controlnet_conditioning_scale = [controlnet_conditioning_scale] * len(controlnet.nets)
-
         if self.controlnet != None:
+            if isinstance(controlnet, MultiControlNetModel) and isinstance(controlnet_conditioning_scale, float):
+                controlnet_conditioning_scale = [controlnet_conditioning_scale] * len(controlnet.nets)
+
+
             global_pool_conditions = (
                 controlnet.config.global_pool_conditions
                 if isinstance(controlnet, ControlNetModel)
@@ -767,40 +792,44 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         with self.progress_bar(total=total) as progress_bar:
             for i, t in enumerate(timesteps):
 
-                # controlnet(s) inference
-                if guess_mode and do_classifier_free_guidance:
-                    # Infer ControlNet only for the conditional batch.
-                    control_model_input = latents
-                    control_model_input = self.scheduler.scale_model_input(control_model_input, t)
-                    controlnet_prompt_embeds = prompt_embeds.chunk(2)[1]
-                else:
-                    control_model_input = latent_model_input
-                    controlnet_prompt_embeds = prompt_embeds
+                down_block_res_samples = None
+                mid_block_res_sample = None
 
-                if isinstance(controlnet_keep[i], list):
-                    cond_scale = [c * s for c, s in zip(controlnet_conditioning_scale, controlnet_keep[i])]
-                else:
-                    controlnet_cond_scale = controlnet_conditioning_scale
-                    if isinstance(controlnet_cond_scale, list):
-                        controlnet_cond_scale = controlnet_cond_scale[0]
-                    cond_scale = controlnet_cond_scale * controlnet_keep[i]
+                if self.controlnet != None:
+                    # controlnet(s) inference
+                    if guess_mode and do_classifier_free_guidance:
+                        # Infer ControlNet only for the conditional batch.
+                        control_model_input = latents
+                        control_model_input = self.scheduler.scale_model_input(control_model_input, t)
+                        controlnet_prompt_embeds = prompt_embeds.chunk(2)[1]
+                    else:
+                        control_model_input = latent_model_input
+                        controlnet_prompt_embeds = prompt_embeds
 
-                down_block_res_samples, mid_block_res_sample = self.controlnet(
-                    control_model_input,
-                    t,
-                    encoder_hidden_states=controlnet_prompt_embeds,
-                    controlnet_cond=image,
-                    conditioning_scale=cond_scale,
-                    guess_mode=guess_mode,
-                    return_dict=False,
-                )
+                    if isinstance(controlnet_keep[i], list):
+                        cond_scale = [c * s for c, s in zip(controlnet_conditioning_scale, controlnet_keep[i])]
+                    else:
+                        controlnet_cond_scale = controlnet_conditioning_scale
+                        if isinstance(controlnet_cond_scale, list):
+                            controlnet_cond_scale = controlnet_cond_scale[0]
+                        cond_scale = controlnet_cond_scale * controlnet_keep[i]
 
-                if guess_mode and do_classifier_free_guidance:
-                    # Infered ControlNet only for the conditional batch.
-                    # To apply the output of ControlNet to both the unconditional and conditional batches,
-                    # add 0 to the unconditional batch to keep it unchanged.
-                    down_block_res_samples = [torch.cat([torch.zeros_like(d), d]) for d in down_block_res_samples]
-                    mid_block_res_sample = torch.cat([torch.zeros_like(mid_block_res_sample), mid_block_res_sample])
+                    down_block_res_samples, mid_block_res_sample = self.controlnet(
+                        control_model_input,
+                        t,
+                        encoder_hidden_states=controlnet_prompt_embeds,
+                        controlnet_cond=image,
+                        conditioning_scale=cond_scale,
+                        guess_mode=guess_mode,
+                        return_dict=False,
+                    )
+
+                    if guess_mode and do_classifier_free_guidance:
+                        # Infered ControlNet only for the conditional batch.
+                        # To apply the output of ControlNet to both the unconditional and conditional batches,
+                        # add 0 to the unconditional batch to keep it unchanged.
+                        down_block_res_samples = [torch.cat([torch.zeros_like(d), d]) for d in down_block_res_samples]
+                        mid_block_res_sample = torch.cat([torch.zeros_like(mid_block_res_sample), mid_block_res_sample])
 
 
                 noise_pred = torch.zeros((latents.shape[0] * (2 if do_classifier_free_guidance else 1),
