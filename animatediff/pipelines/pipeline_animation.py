@@ -534,7 +534,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         guess_mode=False,
     ):
 
-		images = []
+        images = []
         for image_ in image:
             pil_image = PIL.Image.fromarray(image_.cpu().detach().numpy())
             processed_image = self.control_image_processor.preprocess(pil_image, height=height, width=width).to(dtype=torch.float32)
