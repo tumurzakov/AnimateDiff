@@ -534,12 +534,16 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         guess_mode=False,
     ):
 
-        images = []
+		images = []
         for image_ in image:
             pil_image = PIL.Image.fromarray(image_.cpu().detach().numpy())
             processed_image = self.control_image_processor.preprocess(pil_image, height=height, width=width).to(dtype=torch.float32)
-            images.append(torch.tensor(np.array(processed_image)))
-        image = torch.stack(images).squeeze(0)
+            numpy_image = np.array(processed_image)
+            tensor_image = torch.tensor(numpy_image).squeeze(0)
+            images.append(tensor_image)
+
+        image = torch.stack(images)
+        image = image.squeeze(0)
 
         image = image.to(device=device, dtype=dtype)
 
