@@ -1,7 +1,7 @@
 # Adapted from https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/unet_2d_condition.py
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union, Dict
 
 import os
 import json
