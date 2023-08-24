@@ -60,9 +60,9 @@ class Transformer3DModel(ModelMixin, ConfigMixin):
 
         self.norm = torch.nn.GroupNorm(num_groups=norm_num_groups, num_channels=in_channels, eps=1e-6, affine=True)
         if use_linear_projection:
-            self.proj_in = nn.Linear(in_channels, inner_dim)
+            self.proj_in = LoRACompatibleLinear(in_channels, inner_dir)
         else:
-            self.proj_in = nn.Conv2d(in_channels, inner_dim, kernel_size=1, stride=1, padding=0)
+            self.proj_in = LoRACompatibleConv(in_channels, inner_dim, kernel_size=1, stride=1, padding=0)
 
         # Define transformers blocks
         self.transformer_blocks = nn.ModuleList(
@@ -88,9 +88,9 @@ class Transformer3DModel(ModelMixin, ConfigMixin):
 
         # 4. Define output layers
         if use_linear_projection:
-            self.proj_out = nn.Linear(in_channels, inner_dim)
+            self.proj_out = LoRACompatibleLinear(in_channels, inner_dim)
         else:
-            self.proj_out = nn.Conv2d(inner_dim, in_channels, kernel_size=1, stride=1, padding=0)
+            self.proj_out = LoRACompatibleConv(inner_dim, in_channels, kernel_size=1, stride=1, padding=0)
 
     def forward(self,
                 hidden_states,
