@@ -2,7 +2,7 @@
 
 import inspect
 import os
-from typing import Tuple, Callable, List, Optional, Union, Dict
+from typing import Tuple, Callable, List, Optional, Union, Dict, Any
 from dataclasses import dataclass
 
 import numpy as np
