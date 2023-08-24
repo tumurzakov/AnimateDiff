@@ -440,7 +440,7 @@ def main():
         args.pretrained_model_name_or_path, subfolder="text_encoder", revision=args.revision
     )
     vae = AutoencoderKL.from_pretrained(args.pretrained_model_name_or_path, subfolder="vae", revision=args.revision)
-    unet = UNet3DConditionModel.from_pretrained(
+    unet = UNet3DConditionModel.from_pretrained_2d(
         args.pretrained_model_name_or_path,
         subfolder="unet",
         revision=args.revision,
