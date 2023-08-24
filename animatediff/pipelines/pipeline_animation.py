@@ -34,7 +34,7 @@ from ..models.unet import UNet3DConditionModel
 
 from ..utils import overlap_policy
 from ..utils.path import get_absolute_path
-from ..utils.textual_invertion_loader_mixin import TextualInversionLoaderMixin, LoraLoaderMixin
+from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
 
 from diffusers.image_processor import VaeImageProcessor
 
