@@ -443,7 +443,6 @@ def main():
     unet = UNet3DConditionModel.from_pretrained_2d(
         args.pretrained_model_name_or_path,
         subfolder="unet",
-        revision=args.revision,
         unet_additional_kwargs=OmegaConf.to_container(
             inference_config.unet_additional_kwargs),
     )
