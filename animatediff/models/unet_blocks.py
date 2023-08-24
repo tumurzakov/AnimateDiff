@@ -2,6 +2,7 @@
 
 import torch
 from torch import nn
+from typing import List, Optional, Tuple, Union, Dict, Any
 
 from .attention import Transformer3DModel
 from .resnet import Downsample3D, ResnetBlock3D, Upsample3D

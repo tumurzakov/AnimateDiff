@@ -1,7 +1,7 @@
 # Adapted from https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/attention.py
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict, Any
 
 import torch
 import torch.nn.functional as F
