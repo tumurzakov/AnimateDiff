@@ -270,7 +270,7 @@ class VersatileAttention(CrossAttention):
     def extra_repr(self):
         return f"(Module Info) Attention_Mode: {self.attention_mode}, Is_Cross_Attention: {self.is_cross_attention}"
 
-    def forward(self, hidden_states, encoder_hidden_states=None, attention_mask=None, video_length=None):
+    def forward(self, hidden_states, encoder_hidden_states=None, attention_mask=None, video_length=None, **cross_attention_kwargs):
         batch_size, sequence_length, _ = hidden_states.shape
 
         if self.attention_mode == "Temporal":
