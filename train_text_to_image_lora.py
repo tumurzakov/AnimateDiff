@@ -883,7 +883,7 @@ def main():
                 )
                 # create pipeline
                 pipeline = AnimationPipeline.from_pretrained(
-                    args.pretrained_model_path,
+                    args.pretrained_model_name_or_path,
                     text_encoder=text_encoder,
                     vae=vae,
                     unet=unet,
@@ -942,7 +942,7 @@ def main():
     # Final inference
     # Load previous pipeline
     pipeline = AnimationPipeline.from_pretrained(
-        args.pretrained_model_path,
+        args.pretrained_model_name_or_path,
         text_encoder=text_encoder,
         vae=vae,
         unet=unet,
