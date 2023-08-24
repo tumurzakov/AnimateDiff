@@ -109,6 +109,14 @@ def parse_args():
         help="Path to inference config path",
     )
     parser.add_argument(
+        "--video_leng3h",
+        type=int,
+        default=1,
+        required=False,
+        help="Video length",
+    )
+
+    parser.add_argument(
         "--revision",
         type=str,
         default=None,
@@ -768,7 +776,7 @@ def main():
             with accelerator.accumulate(unet):
                 # Convert images to latent space
                 latents = vae.encode(batch["pixel_values"].to(dtype=weight_dtype)).latent_dist.sample()
-                latents = rearrange(latents, "(b f) c h w -> b c f h w", f=1)
+                latents = rearrange(latents, "(b f) c h w -> b c f h w", f=args.video_length)
                 latents = latents * vae.config.scaling_factor
 
                 # Sample noise that we'll add to the latents
@@ -898,7 +906,12 @@ def main():
                 images = []
                 for _ in range(args.num_validation_images):
                     images.append(
-                        pipeline(args.validation_prompt, num_inference_steps=30, generator=generator).images[0]
+                            pipeline(
+                                args.validation_prompt,
+                                 num_inference_steps=30,
+                                 generator=generator,
+                                 video_length=video_length,
+                            ).images[0]
                     )
 
                 for tracker in accelerator.trackers:
@@ -958,7 +971,12 @@ def main():
         generator = generator.manual_seed(args.seed)
     images = []
     for _ in range(args.num_validation_images):
-        images.append(pipeline(args.validation_prompt, num_inference_steps=30, generator=generator).images[0])
+        images.append(pipeline(
+            args.validation_prompt,
+            num_inference_steps=30,
+            generator=generator,
+            video_length=args.video_length,
+        ).images[0])
 
     if accelerator.is_main_process:
         for tracker in accelerator.trackers:
