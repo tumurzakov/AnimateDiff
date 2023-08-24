@@ -11,7 +11,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.utils import BaseOutput
 from diffusers.utils.import_utils import is_xformers_available
-from diffusers.models.attention import Attention as CrossAttention, FeedForward
+from diffusers.models.attention import Attention as CrossAttention, FeedForward, BasicTransformerBlock
 
 from einops import rearrange, repeat
 import pdb
@@ -92,7 +92,13 @@ class Transformer3DModel(ModelMixin, ConfigMixin):
         else:
             self.proj_out = nn.Conv2d(inner_dim, in_channels, kernel_size=1, stride=1, padding=0)
 
-    def forward(self, hidden_states, encoder_hidden_states=None, timestep=None, return_dict: bool = True):
+    def forward(self,
+                hidden_states,
+                encoder_hidden_states=None,
+                timestep=None,
+                return_dict: bool = True,
+                cross_attention_kwargs: Dict[str, Any] = None,
+                ):
         # Input
         assert hidden_states.dim() == 5, f"Expected hidden_states to have ndim=5, but got ndim={hidden_states.dim()}."
         batch_size = hidden_states.shape[0]
@@ -121,7 +127,8 @@ class Transformer3DModel(ModelMixin, ConfigMixin):
                 hidden_states,
                 encoder_hidden_states=encoder_hidden_states,
                 timestep=timestep,
-                video_length=video_length
+                video_length=video_length,
+                cross_attention_kwargs=cross_attention_kwargs,
             )
 
         # Output
@@ -143,133 +150,3 @@ class Transformer3DModel(ModelMixin, ConfigMixin):
             return (output,)
 
         return Transformer3DModelOutput(sample=output)
-
-
-class BasicTransformerBlock(nn.Module):
-    def __init__(
-        self,
-        dim: int,
-        num_attention_heads: int,
-        attention_head_dim: int,
-        dropout=0.0,
-        cross_attention_dim: Optional[int] = None,
-        activation_fn: str = "geglu",
-        num_embeds_ada_norm: Optional[int] = None,
-        attention_bias: bool = False,
-        only_cross_attention: bool = False,
-        upcast_attention: bool = False,
-
-        unet_use_cross_frame_attention = None,
-        unet_use_temporal_attention = None,
-    ):
-        super().__init__()
-        self.only_cross_attention = only_cross_attention
-        self.use_ada_layer_norm = num_embeds_ada_norm is not None
-        self.unet_use_cross_frame_attention = unet_use_cross_frame_attention
-        self.unet_use_temporal_attention = unet_use_temporal_attention
-
-        # SC-Attn
-        assert unet_use_cross_frame_attention is not None
-        if unet_use_cross_frame_attention:
-            self.attn1 = SparseCausalAttention2D(
-                query_dim=dim,
-                heads=num_attention_heads,
-                dim_head=attention_head_dim,
-                dropout=dropout,
-                bias=attention_bias,
-                cross_attention_dim=cross_attention_dim if only_cross_attention else None,
-                upcast_attention=upcast_attention,
-            )
-        else:
-            self.attn1 = CrossAttention(
-                query_dim=dim,
-                heads=num_attention_heads,
-                dim_head=attention_head_dim,
-                dropout=dropout,
-                bias=attention_bias,
-                upcast_attention=upcast_attention,
-            )
-        self.norm1 = AdaLayerNorm(dim, num_embeds_ada_norm) if self.use_ada_layer_norm else nn.LayerNorm(dim)
-
-        # Cross-Attn
-        if cross_attention_dim is not None:
-            self.attn2 = CrossAttention(
-                query_dim=dim,
-                cross_attention_dim=cross_attention_dim,
-                heads=num_attention_heads,
-                dim_head=attention_head_dim,
-                dropout=dropout,
-                bias=attention_bias,
-                upcast_attention=upcast_attention,
-            )
-        else:
-            self.attn2 = None
-
-        if cross_attention_dim is not None:
-            self.norm2 = AdaLayerNorm(dim, num_embeds_ada_norm) if self.use_ada_layer_norm else nn.LayerNorm(dim)
-        else:
-            self.norm2 = None
-
-        # Feed-forward
-        self.ff = FeedForward(dim, dropout=dropout, activation_fn=activation_fn)
-        self.norm3 = nn.LayerNorm(dim)
-
-        # Temp-Attn
-        assert unet_use_temporal_attention is not None
-        if unet_use_temporal_attention:
-            self.attn_temp = CrossAttention(
-                query_dim=dim,
-                heads=num_attention_heads,
-                dim_head=attention_head_dim,
-                dropout=dropout,
-                bias=attention_bias,
-                upcast_attention=upcast_attention,
-            )
-            nn.init.zeros_(self.attn_temp.to_out[0].weight.data)
-            self.norm_temp = AdaLayerNorm(dim, num_embeds_ada_norm) if self.use_ada_layer_norm else nn.LayerNorm(dim)
-
-    def forward(self, hidden_states, encoder_hidden_states=None, timestep=None, attention_mask=None, video_length=None):
-        # SparseCausal-Attention
-        norm_hidden_states = (
-            self.norm1(hidden_states, timestep) if self.use_ada_layer_norm else self.norm1(hidden_states)
-        )
-
-        # if self.only_cross_attention:
-        #     hidden_states = (
-        #         self.attn1(norm_hidden_states, encoder_hidden_states, attention_mask=attention_mask) + hidden_states
-        #     )
-        # else:
-        #     hidden_states = self.attn1(norm_hidden_states, attention_mask=attention_mask, video_length=video_length) + hidden_states
-
-        # pdb.set_trace()
-        if self.unet_use_cross_frame_attention:
-            hidden_states = self.attn1(norm_hidden_states, attention_mask=attention_mask, video_length=video_length) + hidden_states
-        else:
-            hidden_states = self.attn1(norm_hidden_states, attention_mask=attention_mask) + hidden_states
-
-        if self.attn2 is not None:
-            # Cross-Attention
-            norm_hidden_states = (
-                self.norm2(hidden_states, timestep) if self.use_ada_layer_norm else self.norm2(hidden_states)
-            )
-            hidden_states = (
-                self.attn2(
-                    norm_hidden_states, encoder_hidden_states=encoder_hidden_states, attention_mask=attention_mask
-                )
-                + hidden_states
-            )
-
-        # Feed-forward
-        hidden_states = self.ff(self.norm3(hidden_states)) + hidden_states
-
-        # Temporal-Attention
-        if self.unet_use_temporal_attention:
-            d = hidden_states.shape[1]
-            hidden_states = rearrange(hidden_states, "(b f) d c -> (b d) f c", f=video_length)
-            norm_hidden_states = (
-                self.norm_temp(hidden_states, timestep) if self.use_ada_layer_norm else self.norm_temp(hidden_states)
-            )
-            hidden_states = self.attn_temp(norm_hidden_states) + hidden_states
-            hidden_states = rearrange(hidden_states, "(b d) f c -> (b f) d c", d=d)
-
-        return hidden_states

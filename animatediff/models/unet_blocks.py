@@ -369,6 +369,7 @@ class CrossAttnDownBlock3D(nn.Module):
         encoder_hidden_states=None,
         attention_mask=None,
         additional_residuals=None,
+        cross_attention_kwargs: Optional[Dict[str, Any]] = None,
     ):
 
         output_states = ()
@@ -396,7 +397,11 @@ class CrossAttnDownBlock3D(nn.Module):
 
             else:
                 hidden_states = resnet(hidden_states, temb)
-                hidden_states = attn(hidden_states, encoder_hidden_states=encoder_hidden_states).sample
+                hidden_states = attn(
+                        hidden_states,
+                        encoder_hidden_states=encoder_hidden_states,
+                        cross_attention_kwargs=cross_attention_kwargs,
+                ).sample
 
                 # add motion module
                 hidden_states = motion_module(hidden_states, temb, encoder_hidden_states=encoder_hidden_states) if motion_module is not None else hidden_states
@@ -614,6 +619,7 @@ class CrossAttnUpBlock3D(nn.Module):
         encoder_hidden_states=None,
         upsample_size=None,
         attention_mask=None,
+        cross_attention_kwargs: Optional[Dict[str, Any]] = None,
     ):
         for resnet, attn, motion_module in zip(self.resnets, self.attentions, self.motion_modules):
             # pop res hidden states
@@ -643,10 +649,18 @@ class CrossAttnUpBlock3D(nn.Module):
 
             else:
                 hidden_states = resnet(hidden_states, temb)
-                hidden_states = attn(hidden_states, encoder_hidden_states=encoder_hidden_states).sample
+                hidden_states = attn(
+                        hidden_states,
+                        encoder_hidden_states=encoder_hidden_states,
+                        cross_attention_kwargs=cross_attention_kwargs,
+                ).sample
 
                 # add motion module
-                hidden_states = motion_module(hidden_states, temb, encoder_hidden_states=encoder_hidden_states) if motion_module is not None else hidden_states
+                hidden_states = motion_module(
+                        hidden_states,
+                        temb,
+                        encoder_hidden_states=encoder_hidden_states
+                ) if motion_module is not None else hidden_states
 
         if self.upsamplers is not None:
             for upsampler in self.upsamplers:
