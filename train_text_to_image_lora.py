@@ -912,12 +912,12 @@ def main():
                                 temporal_context=args.video_length,
                                 video_length=args.video_length,
                                 fp16=accelerator.mixed_precision == "fp16",
-                            ).images[0]
+                            ).videos[0]
                     )
 
                 for tracker in accelerator.trackers:
                     if tracker.name == "tensorboard":
-                        np_images = np.stack([np.asarray(img) for img in images])
+                        np_images = np.stack([np.asarray(img) for img in images[0]])
                         tracker.writer.add_images("validation", np_images, epoch, dataformats="NHWC")
                     if tracker.name == "wandb":
                         tracker.log(
@@ -979,13 +979,13 @@ def main():
             temporal_context=args.video_length,
             video_length=args.video_length,
             fp16=accelerator.mixed_precision == "fp16" ,
-        ).images[0])
+        ).videos[0])
 
     if accelerator.is_main_process:
         for tracker in accelerator.trackers:
             if len(images) != 0:
                 if tracker.name == "tensorboard":
-                    np_images = np.stack([np.asarray(img) for img in images])
+                    np_images = np.stack([np.asarray(img) for img in images[0]])
                     tracker.writer.add_images("test", np_images, epoch, dataformats="NHWC")
                 if tracker.name == "wandb":
                     tracker.log(
