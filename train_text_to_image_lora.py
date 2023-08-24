@@ -109,13 +109,12 @@ def parse_args():
         help="Path to inference config path",
     )
     parser.add_argument(
-        "--video_leng3h",
+        "--video_length",
         type=int,
         default=1,
         required=False,
         help="Video length",
     )
-
     parser.add_argument(
         "--revision",
         type=str,
