@@ -150,9 +150,16 @@ def parse_args(input_args=None):
         help="Path to pretrained model or model identifier from huggingface.co/models.",
     )
     parser.add_argument(
+        "--motion_module",
+        type=str,
+        default="models/Motion_Module/mm_sd_v15.ckpt",
+        required=True,
+        help="Path to motion_module",
+    )
+    parser.add_argument(
         "--inference_config_path",
         type=str,
-        default=None,
+        default="configs/inference/inference.yaml",
         required=True,
         help="Path to inference config path",
     )
@@ -820,7 +827,7 @@ def main(args):
             inference_config.unet_additional_kwargs),
     )
 
-    motion_module_state_dict = torch.load(inference_config.motion_module, map_location="cpu")
+    motion_module_state_dict = torch.load(motion_module, map_location="cpu")
     if "global_step" in motion_module_state_dict: func_args.update({"global_step": motion_module_state_dict["global_step"]})
     missing, unexpected = unet.load_state_dict(motion_module_state_dict, strict=False)
     assert len(unexpected) == 0
