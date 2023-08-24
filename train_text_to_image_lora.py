@@ -447,7 +447,7 @@ def main():
             inference_config.unet_additional_kwargs),
     )
 
-    motion_module_state_dict = torch.load(motion_module, map_location="cpu")
+    motion_module_state_dict = torch.load(args.motion_module, map_location="cpu")
     if "global_step" in motion_module_state_dict: func_args.update({"global_step": motion_module_state_dict["global_step"]})
     missing, unexpected = unet.load_state_dict(motion_module_state_dict, strict=False)
     assert len(unexpected) == 0
