@@ -37,6 +37,7 @@ from packaging import version
 from torchvision import transforms
 from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
+from omegaconf import OmegaConf
 
 import diffusers
 from diffusers import AutoencoderKL, DDPMScheduler, DiffusionPipeline
