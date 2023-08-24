@@ -34,7 +34,7 @@ from ..models.unet import UNet3DConditionModel
 
 from ..utils import overlap_policy
 from ..utils.path import get_absolute_path
-from ..utils.textual_invertion_loader_mixin import TextualInversionLoaderMixin
+from ..utils.textual_invertion_loader_mixin import TextualInversionLoaderMixin, LoraLoaderMixin
 
 from diffusers.image_processor import VaeImageProcessor
 
@@ -50,7 +50,7 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 class AnimationPipelineOutput(BaseOutput):
     videos: Union[torch.Tensor, np.ndarray]
 
-class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
+class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixin):
     _optional_components = []
 
     def __init__(
@@ -257,6 +257,12 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         return text_embeddings
 
     def _encode_prompt(self, compel, prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt):
+        # set lora scale so that monkey patched LoRA
+        # function of text encoder can correctly access it
+        if lora_scale is not None and isinstance(self, LoraLoaderMixin):
+            self._lora_scale = lora_scale
+
+
         if not compel:
           text_embeddings = self._encode_prompt_orig(
               prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt
