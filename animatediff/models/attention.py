@@ -258,7 +258,7 @@ class BasicTransformerBlock(nn.Module):
                                        ) + hidden_states
         else:
             hidden_states = self.attn1(norm_hidden_states,
-                                       attention_mask=attention_mask
+                                       attention_mask=attention_mask,
                                        **cross_attention_kwargs,
                                        ) + hidden_states
 
