@@ -49,6 +49,7 @@ from diffusers.optimization import get_scheduler
 from diffusers.utils import check_min_version, is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
 
+from animatediff.pipelines.pipeline_animation import AnimationPipeline
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.21.0.dev0")
@@ -881,11 +882,11 @@ def main():
                     f" {args.validation_prompt}."
                 )
                 # create pipeline
-                pipeline = DiffusionPipeline.from_pretrained(
-                    args.pretrained_model_name_or_path,
-                    unet=accelerator.unwrap_model(unet),
-                    revision=args.revision,
-                    torch_dtype=weight_dtype,
+                pipeline = AnimationPipeline.from_pretrained(
+                    args.pretrained_model_path,
+                    text_encoder=text_encoder,
+                    vae=vae,
+                    unet=unet,
                 )
                 pipeline = pipeline.to(accelerator.device)
                 pipeline.set_progress_bar_config(disable=True)
@@ -940,8 +941,11 @@ def main():
 
     # Final inference
     # Load previous pipeline
-    pipeline = DiffusionPipeline.from_pretrained(
-        args.pretrained_model_name_or_path, revision=args.revision, torch_dtype=weight_dtype
+    pipeline = AnimationPipeline.from_pretrained(
+        args.pretrained_model_path,
+        text_encoder=text_encoder,
+        vae=vae,
+        unet=unet,
     )
     pipeline = pipeline.to(accelerator.device)
 
