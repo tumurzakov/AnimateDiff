@@ -256,7 +256,15 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
 
         return text_embeddings
 
-    def _encode_prompt(self, compel, prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt):
+    def _encode_prompt(self,
+                       compel,
+                       prompt,
+                       device,
+                       num_videos_per_prompt,
+                       do_classifier_free_guidance,
+                       negative_prompt,
+                       lora_scale: Optional[float] = None,
+                       ):
         # set lora scale so that monkey patched LoRA
         # function of text encoder can correctly access it
         if lora_scale is not None and isinstance(self, LoraLoaderMixin):
@@ -637,6 +645,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
         guess_mode: bool = False,
         control_guidance_start: Union[float, List[float]] = 0.0,
         control_guidance_end: Union[float, List[float]] = 1.0,
+        cross_attention_kwargs: Optional[Dict[str, Any]] = None,
 
         **kwargs,
     ):
@@ -708,19 +717,26 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
 
         parted_text_embeddings = [None] * video_length
 
+        text_encoder_lora_scale = (
+            cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
+        )
+
         if isinstance(prompt[0], dict):
           for start_frame in prompt[0]:
             part_prompt = prompt[0][start_frame]
             embeddings = self._encode_prompt(
                 compel,
                 [part_prompt], device, num_videos_per_prompt,
-                do_classifier_free_guidance, negative_prompt
+                do_classifier_free_guidance, negative_prompt,
+                lora_scale=text_encoder_lora_scale,
             )
             parted_text_embeddings[int(start_frame)] = embeddings
         else:
           text_embeddings = self._encode_prompt(
               compel,
-              prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt
+              prompt, device, num_videos_per_prompt,
+              do_classifier_free_guidance, negative_prompt,
+                lora_scale=text_encoder_lora_scale,
           )
           parted_text_embeddings[0] = text_embeddings
 
@@ -884,6 +900,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                     with torch.autocast('cuda', enabled=fp16, dtype=torch.float16):
                         pred = self.unet(latent_model_input,
                                          t,
+                                         cross_attention_kwargs=cross_attention_kwargs,
                                          down_block_additional_residuals=down_block_res_samples,
                                          mid_block_additional_residual=mid_block_res_sample,
                                          encoder_hidden_states=multi_text_embeddings)

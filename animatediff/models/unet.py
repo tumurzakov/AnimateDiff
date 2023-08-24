@@ -77,6 +77,8 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         upcast_attention: bool = False,
         resnet_time_scale_shift: str = "default",
 
+        cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+
         # Additional
         use_motion_module              = False,
         motion_module_resolutions      = ( 1,2,4,8 ),
