@@ -15,6 +15,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.utils import BaseOutput, logging
 from diffusers.models.embeddings import TimestepEmbedding, Timesteps
+from diffusers.loaders import UNet2DConditionLoadersMixin
 from .unet_blocks import (
     CrossAttnDownBlock3D,
     CrossAttnUpBlock3D,
@@ -35,7 +36,7 @@ class UNet3DConditionOutput(BaseOutput):
     sample: torch.FloatTensor
 
 
-class UNet3DConditionModel(ModelMixin, ConfigMixin):
+class UNet3DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
     _supports_gradient_checkpointing = True
 
     @register_to_config
