@@ -766,6 +766,7 @@ def main():
             with accelerator.accumulate(unet):
                 # Convert images to latent space
                 latents = vae.encode(batch["pixel_values"].to(dtype=weight_dtype)).latent_dist.sample()
+                latents = rearrange(latents, "(b f) c h w -> b c f h w", f=1)
                 latents = latents * vae.config.scaling_factor
 
                 # Sample noise that we'll add to the latents
