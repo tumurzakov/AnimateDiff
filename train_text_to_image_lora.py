@@ -95,14 +95,14 @@ def parse_args():
         "--motion_module",
         type=str,
         default="models/Motion_Module/mm_sd_v15.ckpt",
-        required=True,
+        required=False,
         help="Path to motion_module",
     )
     parser.add_argument(
         "--inference_config_path",
         type=str,
         default="configs/inference/inference.yaml",
-        required=True,
+        required=False,
         help="Path to inference config path",
     )
     parser.add_argument(
