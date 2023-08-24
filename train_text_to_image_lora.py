@@ -907,11 +907,11 @@ def main():
                     images.append(
                             pipeline(
                                 args.validation_prompt,
-                                 num_inference_steps=30,
-                                 generator=generator,
-                                 temporal_context=args.video_length,
-                                 video_length=args.video_length,
-                                 fp16=True,
+                                num_inference_steps=30,
+                                generator=generator,
+                                temporal_context=args.video_length,
+                                video_length=args.video_length,
+                                fp16=accelerator.mixed_precision == "fp16",
                             ).images[0]
                     )
 
@@ -978,7 +978,7 @@ def main():
             generator=generator,
             temporal_context=args.video_length,
             video_length=args.video_length,
-            fp16=True,
+            fp16=accelerator.mixed_precision == "fp16" ,
         ).images[0])
 
     if accelerator.is_main_process:
