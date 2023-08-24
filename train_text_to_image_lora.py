@@ -909,6 +909,7 @@ def main():
                                 args.validation_prompt,
                                  num_inference_steps=30,
                                  generator=generator,
+                                 temporal_context=args.video_length,
                                  video_length=args.video_length,
                             ).images[0]
                     )
@@ -974,6 +975,7 @@ def main():
             args.validation_prompt,
             num_inference_steps=30,
             generator=generator,
+            temporal_context=args.video_length,
             video_length=args.video_length,
         ).images[0])
 
