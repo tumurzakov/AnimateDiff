@@ -909,7 +909,7 @@ def main():
                                 args.validation_prompt,
                                  num_inference_steps=30,
                                  generator=generator,
-                                 video_length=video_length,
+                                 video_length=args.video_length,
                             ).images[0]
                     )
 
