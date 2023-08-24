@@ -911,6 +911,7 @@ def main():
                                  generator=generator,
                                  temporal_context=args.video_length,
                                  video_length=args.video_length,
+                                 fp16=True,
                             ).images[0]
                     )
 
@@ -977,6 +978,7 @@ def main():
             generator=generator,
             temporal_context=args.video_length,
             video_length=args.video_length,
+            fp16=True,
         ).images[0])
 
     if accelerator.is_main_process:
