@@ -21,6 +21,7 @@ from diffusers import AutoencoderKL, DDPMScheduler, DDIMScheduler
 from diffusers.optimization import get_scheduler
 from diffusers.utils import check_min_version
 from diffusers.utils.import_utils import is_xformers_available
+from diffusers.loaders import AttnProcsLayers
 from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 
