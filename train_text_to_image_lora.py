@@ -767,11 +767,17 @@ def main():
     mtcnn = MTCNN(image_size=args.resolution, device='cuda')
     resnet = InceptionResnetV1(pretrained='vggface2').eval().to('cuda')
 
-    def calc_embedding(img):
-        img_cropped = mtcnn(img)[0]
-        if img_cropped == None:
+	def calc_embedding(img):
+        img_cropped = mtcnn(img)
+
+        if len(img_cropped) == 0:
+          return None
+
+        if img_cropped[0] == None:
             return None
 
+        img_cropped = img_cropped[0]
+        img_cropped = rearrange(img_cropped, 'h w c -> c h w')
         img_embedding = resnet(img_cropped.unsqueeze(0).to('cuda'))
         return img_embedding
 
@@ -807,8 +813,6 @@ def main():
                 latents = rearrange(latents, "(b f) c h w -> b c f h w", f=args.video_length)
                 latents = latents * vae.config.scaling_factor
 
-                get_embeddings(latents, vae)
-
                 # Sample noise that we'll add to the latents
                 noise = torch.randn_like(latents)
                 if args.noise_offset:
@@ -843,6 +847,10 @@ def main():
 
                 # Predict the noise residual and compute loss
                 model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+
+                emb1 = get_embeddings(latents, vae)
+                emb2 = get_embeddings(noisy_latents - model_pred, vae)
+                print(distance(emb1, emb2), emb1 is None, emb2 is None)
 
                 if args.snr_gamma is None:
                     loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
