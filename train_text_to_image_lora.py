@@ -858,7 +858,7 @@ def main():
                 facenet_distance = distance(emb1, emb2)
                 if facenet_distance == None:
                     facenet_distance = facenet_none_distance
-                print("distance", distance)
+                print("distance", facenet_distance)
 
                 if args.snr_gamma is None:
                     loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
