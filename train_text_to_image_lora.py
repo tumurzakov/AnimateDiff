@@ -767,7 +767,7 @@ def main():
     mtcnn = MTCNN(image_size=args.resolution, device='cuda')
     resnet = InceptionResnetV1(pretrained='vggface2').eval().to('cuda')
 
-	def calc_embedding(img):
+    def calc_embedding(img):
         img_cropped = mtcnn(img)
 
         if len(img_cropped) == 0:
