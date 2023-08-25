@@ -51,7 +51,7 @@ from diffusers.utils.import_utils import is_xformers_available
 
 from animatediff.pipelines.pipeline_animation import AnimationPipeline
 
-from facenet_pytorch import MTCNN, InceptionResnetV1
+from facenet import MTCNN, InceptionResnetV1
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 #check_min_version("0.21.0.dev0")
