@@ -787,7 +787,7 @@ def main():
             latents_r = rearrange(latents, 'b c f h w -> (b f) c h w')
 
         decoded = vae.decode(latents_r).sample
-        decoded = (decoded / 2 + 0.5).clap(0, 1) * 255
+        decoded = (decoded / 2 + 0.5).clamp(0, 1) * 255
         decoded = rearrange(decoded, 'b c h w -> b h w c')
         return calc_embedding(decoded)
 
