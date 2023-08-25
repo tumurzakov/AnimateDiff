@@ -376,6 +376,8 @@ def parse_args():
         default=4,
         help=("The dimension of the LoRA update matrices."),
     )
+    parser.add_argument("--facenet_none_distance", type=float, default=1, help="Distance when at least one emb missed")
+    parser.add_argument("--facenet_alpha", type=float, default=1, help="Facenet loss weight")
 
     args = parser.parse_args()
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
@@ -797,6 +799,9 @@ def main():
         decoded = rearrange(decoded, 'b c h w -> b h w c')
         return calc_embedding(decoded)
 
+    facenet_alpha = torch.tensor(args.facenet_alpha).to('cuda')
+    facenet_none_distance = torch.tensor(args.facenet_none_distance).to('cuda')
+
     for epoch in range(first_epoch, args.num_train_epochs):
         unet.train()
         train_loss = 0.0
@@ -850,9 +855,9 @@ def main():
 
                 emb1 = get_embeddings(latents, vae)
                 emb2 = get_embeddings(noisy_latents - model_pred, vae)
-                dist = distance(emb1, emb2)
-                if dist == None:
-                    dist = torch.tensor(100.0).to('cuda')
+                facenet_distance = distance(emb1, emb2)
+                if facenet_distance == None:
+                    facenet_distance = facenet_none_distance
                 print("distance", distance)
 
                 if args.snr_gamma is None:
@@ -872,7 +877,7 @@ def main():
                     loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
                     loss = loss.mean()
 
-                loss = loss + dist
+                loss = loss + facenet_alpha * facenet_distance
 
                 # Gather the losses across all processes for logging (if we use distributed training).
                 avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
