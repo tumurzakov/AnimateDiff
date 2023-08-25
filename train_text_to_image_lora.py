@@ -788,6 +788,7 @@ def main():
 
         decoded = vae.decode(latents_r).sample
         decoded = (decoded / 2 + 0.5).clap(0, 1) * 255
+        decoded = rearrange(decoded, 'b c h w -> b h w c')
         return calc_embedding(decoded)
 
     for epoch in range(first_epoch, args.num_train_epochs):
