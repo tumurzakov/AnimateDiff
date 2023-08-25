@@ -850,7 +850,10 @@ def main():
 
                 emb1 = get_embeddings(latents, vae)
                 emb2 = get_embeddings(noisy_latents - model_pred, vae)
-                print(distance(emb1, emb2), emb1 is None, emb2 is None)
+                dist = distance(emb1, emb2)
+                if dist == None:
+                    dist = torch.tensor(100.0).to('cuda')
+                print("distance", distance)
 
                 if args.snr_gamma is None:
                     loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
@@ -868,6 +871,8 @@ def main():
                     loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
                     loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
                     loss = loss.mean()
+
+                loss = loss + dist
 
                 # Gather the losses across all processes for logging (if we use distributed training).
                 avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
