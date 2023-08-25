@@ -51,8 +51,6 @@ from diffusers.utils.import_utils import is_xformers_available
 
 from animatediff.pipelines.pipeline_animation import AnimationPipeline
 
-from facenet import MTCNN, InceptionResnetV1
-
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 #check_min_version("0.21.0.dev0")
 
@@ -376,8 +374,6 @@ def parse_args():
         default=4,
         help=("The dimension of the LoRA update matrices."),
     )
-    parser.add_argument("--facenet_none_distance", type=float, default=1, help="Distance when at least one emb missed")
-    parser.add_argument("--facenet_alpha", type=float, default=1, help="Facenet loss weight")
 
     args = parser.parse_args()
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
@@ -766,42 +762,6 @@ def main():
     progress_bar = tqdm(range(global_step, args.max_train_steps), disable=not accelerator.is_local_main_process)
     progress_bar.set_description("Steps")
 
-    mtcnn = MTCNN(image_size=args.resolution, device='cuda')
-    resnet = InceptionResnetV1(pretrained='vggface2').eval().to('cuda')
-
-    def calc_embedding(img):
-        img_cropped = mtcnn(img)
-
-        if len(img_cropped) == 0:
-          return None
-
-        if img_cropped[0] == None:
-            return None
-
-        img_cropped = img_cropped[0]
-        img_cropped = rearrange(img_cropped, 'h w c -> c h w')
-        img_embedding = resnet(img_cropped.unsqueeze(0).to('cuda'))
-        return img_embedding
-
-    def distance(e1, e2):
-        if e1 == None or e2 == None:
-            return None
-        return (e1 - e2).norm().item()
-
-    @torch.no_grad()
-    def get_embeddings(latents, vae):
-        latents_r = latents
-        if len(latents.shape) == 5:
-            latents_r = rearrange(latents, 'b c f h w -> (b f) c h w')
-
-        decoded = vae.decode(latents_r).sample
-        decoded = (decoded / 2 + 0.5).clamp(0, 1) * 255
-        decoded = rearrange(decoded, 'b c h w -> b h w c')
-        return calc_embedding(decoded)
-
-    facenet_alpha = torch.tensor(args.facenet_alpha).to('cuda')
-    facenet_none_distance = torch.tensor(args.facenet_none_distance).to('cuda')
-
     for epoch in range(first_epoch, args.num_train_epochs):
         unet.train()
         train_loss = 0.0
@@ -853,13 +813,6 @@ def main():
                 # Predict the noise residual and compute loss
                 model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
 
-                emb1 = get_embeddings(latents, vae)
-                emb2 = get_embeddings(noisy_latents - model_pred, vae)
-                facenet_distance = distance(emb1, emb2)
-                if facenet_distance == None:
-                    facenet_distance = facenet_none_distance
-                print("distance", facenet_distance)
-
                 if args.snr_gamma is None:
                     loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                 else:
@@ -876,8 +829,6 @@ def main():
                     loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
                     loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
                     loss = loss.mean()
-
-                loss = loss + facenet_alpha * facenet_distance
 
                 # Gather the losses across all processes for logging (if we use distributed training).
                 avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
