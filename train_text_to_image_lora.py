@@ -51,6 +51,8 @@ from diffusers.utils.import_utils import is_xformers_available
 
 from animatediff.pipelines.pipeline_animation import AnimationPipeline
 
+from facenet_pytorch import MTCNN, InceptionResnetV1
+
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 #check_min_version("0.21.0.dev0")
 
@@ -762,6 +764,32 @@ def main():
     progress_bar = tqdm(range(global_step, args.max_train_steps), disable=not accelerator.is_local_main_process)
     progress_bar.set_description("Steps")
 
+    mtcnn = MTCNN(image_size=args.resolution, device='cuda')
+    resnet = InceptionResnetV1(pretrained='vggface2').eval().to('cuda')
+
+    def calc_embedding(img):
+        img_cropped = mtcnn(img)[0]
+        if img_cropped == None:
+            return None
+
+        img_embedding = resnet(img_cropped.unsqueeze(0).to('cuda'))
+        return img_embedding
+
+    def distance(e1, e2):
+        if e1 == None or e2 == None:
+            return None
+        return (e1 - e2).norm().item()
+
+    @torch.no_grad()
+    def get_embeddings(latents, vae):
+        latents_r = latents
+        if len(latents.shape) == 5:
+            latents_r = rearrange(latents, 'b c f h w -> (b f) h w c')
+
+        decoded = vae.decode(latents_r).sample
+        decoded = (decoded / 2 + 0.5).clap(0, 1) * 255
+        return calc_embedding(decoded)
+
     for epoch in range(first_epoch, args.num_train_epochs):
         unet.train()
         train_loss = 0.0
@@ -777,6 +805,8 @@ def main():
                 latents = vae.encode(batch["pixel_values"].to(dtype=weight_dtype)).latent_dist.sample()
                 latents = rearrange(latents, "(b f) c h w -> b c f h w", f=args.video_length)
                 latents = latents * vae.config.scaling_factor
+
+                get_embeddings(latents, vae)
 
                 # Sample noise that we'll add to the latents
                 noise = torch.randn_like(latents)
