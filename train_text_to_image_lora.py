@@ -784,7 +784,7 @@ def main():
     def get_embeddings(latents, vae):
         latents_r = latents
         if len(latents.shape) == 5:
-            latents_r = rearrange(latents, 'b c f h w -> (b f) h w c')
+            latents_r = rearrange(latents, 'b c f h w -> (b f) c h w')
 
         decoded = vae.decode(latents_r).sample
         decoded = (decoded / 2 + 0.5).clap(0, 1) * 255
