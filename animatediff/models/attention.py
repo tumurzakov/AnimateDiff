@@ -272,7 +272,7 @@ class BasicTransformerBlock(nn.Module):
             hidden_states = (
                 self.attn2(
                     norm_hidden_states,
-                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_hidden_states=encoder_hidden_states.to(norm_hidden_states.dtype),
                     attention_mask=attention_mask,
                     **cross_attention_kwargs,
                 )
