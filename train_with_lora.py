@@ -367,7 +367,9 @@ def main(
                     raise ValueError(f"Unknown prediction type {noise_scheduler.prediction_type}")
 
                 # Predict the noise residual and compute loss
-                model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+                with torch.autocast('cuda', enabled=fp16, dtype=torch.float16):
+                    model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+
                 loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
 
                 # Gather the losses across all processes for logging (if we use distributed training).

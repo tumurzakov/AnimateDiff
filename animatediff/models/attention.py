@@ -197,7 +197,7 @@ class BasicTransformerBlock(nn.Module):
                 bias=attention_bias,
                 upcast_attention=upcast_attention,
             )
-        self.norm1 = AdaLayerNorm(dim, num_embeds_ada_norm) if self.use_ada_layer_norm else LayerNorm(dim)
+        self.norm1 = AdaLayerNorm(dim, num_embeds_ada_norm) if self.use_ada_layer_norm else nn.LayerNorm(dim)
 
         # Cross-Attn
         if cross_attention_dim is not None:
@@ -214,13 +214,13 @@ class BasicTransformerBlock(nn.Module):
             self.attn2 = None
 
         if cross_attention_dim is not None:
-            self.norm2 = AdaLayerNorm(dim, num_embeds_ada_norm) if self.use_ada_layer_norm else LayerNorm(dim)
+            self.norm2 = AdaLayerNorm(dim, num_embeds_ada_norm) if self.use_ada_layer_norm else nn.LayerNorm(dim)
         else:
             self.norm2 = None
 
         # Feed-forward
         self.ff = FeedForward(dim, dropout=dropout, activation_fn=activation_fn)
-        self.norm3 = LayerNorm(dim)
+        self.norm3 = nn.LayerNorm(dim)
 
         # Temp-Attn
         assert unet_use_temporal_attention is not None
@@ -234,7 +234,7 @@ class BasicTransformerBlock(nn.Module):
                 upcast_attention=upcast_attention,
             )
             nn.init.zeros_(self.attn_temp.to_out[0].weight.data)
-            self.norm_temp = AdaLayerNorm(dim, num_embeds_ada_norm) if self.use_ada_layer_norm else LayerNorm(dim)
+            self.norm_temp = AdaLayerNorm(dim, num_embeds_ada_norm) if self.use_ada_layer_norm else nn.LayerNorm(dim)
 
     def forward(self,
                 hidden_states,
@@ -293,9 +293,3 @@ class BasicTransformerBlock(nn.Module):
             hidden_states = rearrange(hidden_states, "(b d) f c -> (b f) d c", d=d)
 
         return hidden_states
-
-class LayerNorm(nn.LayerNorm):
-    def forward(self, x):
-        t = x.dtype
-        x = super().forward(x)
-        return x.to(dtype=t)
