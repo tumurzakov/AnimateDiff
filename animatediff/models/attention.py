@@ -297,5 +297,5 @@ class BasicTransformerBlock(nn.Module):
 class LayerNorm(nn.LayerNorm):
     def forward(self, x):
         t = x.dtype
-        x = super().forward(x.type(torch.float32))
-        return x.type(t)
+        x = super().forward(x)
+        return x.to(dtype=t)
