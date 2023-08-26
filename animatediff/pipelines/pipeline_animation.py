@@ -926,8 +926,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
             return latents
 
         # Post-processing
-        if fp16:
-            latents = latents.half()
+        latents = latents.to(vae.dtype)
         video = self.decode_latents(latents)
 
         # Convert to tensor
