@@ -254,6 +254,7 @@ def main(
         betas=(adam_beta1, adam_beta2),
         weight_decay=adam_weight_decay,
         eps=adam_epsilon,
+        decouple=True,
     )
 
     # Get the training dataset
