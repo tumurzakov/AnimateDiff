@@ -57,10 +57,10 @@ def load_checkpoint(path, unet, vae):
 
         # vae
         converted_vae_checkpoint = convert_ldm_vae_checkpoint(base_state_dict, vae.config)
-        vae.load_state_dict(vae_checkpoint)
+        vae.load_state_dict(converted_vae_checkpoint)
         # unet
         converted_unet_checkpoint = convert_ldm_unet_checkpoint(base_state_dict, unet.config)
-        unet.load_state_dict(unet_checkpoint, strict=False)
+        unet.load_state_dict(converted_unet_checkpoint, strict=False)
         # text_model
         text_encoder = convert_ldm_clip_checkpoint(base_state_dict)
 
