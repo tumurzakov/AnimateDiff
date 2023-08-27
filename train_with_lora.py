@@ -232,6 +232,7 @@ def main(
         )
 
     # Initialize the optimizer
+    optimizer = None
     if use_8bit_adam:
         try:
             import bitsandbytes as bnb
@@ -242,19 +243,27 @@ def main(
 
         optimizer_cls = bnb.optim.AdamW8bit
     elif use_dadapt_adam:
-        print("Optim DAdaptAdam")
-        import dadaptation
-        optimizer_cls = dadaptation.DAdaptAdam
+        try:
+            import dadaptation
+        except ImportError:
+            raise ImportError(
+                "Please install dadaptation. You can do so by running `pip install dadaptation`"
+            )
+
+        optimizer = dadaptation.DAdaptAdam(
+            lr=1.0,
+        )
     else:
         optimizer_cls = torch.optim.AdamW
 
-    optimizer = optimizer_cls(
-        unet.parameters(),
-        lr=learning_rate,
-        betas=(adam_beta1, adam_beta2),
-        weight_decay=adam_weight_decay,
-        eps=adam_epsilon,
-    )
+    if optimizer == None:
+        optimizer = optimizer_cls(
+            unet.parameters(),
+            lr=learning_rate,
+            betas=(adam_beta1, adam_beta2),
+            weight_decay=adam_weight_decay,
+            eps=adam_epsilon,
+        )
 
     # Get the training dataset
     train_dataset = None
