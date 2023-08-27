@@ -94,8 +94,7 @@ def main(
     start_global_step: int = 0,
     resume_from_checkpoint: Optional[str] = None,
     mixed_precision: Optional[str] = "fp16",
-    use_8bit_adam: bool = False,
-    use_dadapt_adam: bool = False,
+    use_optimizer: str = 'AdamW',
     enable_xformers_memory_efficient_attention: bool = True,
     seed: Optional[int] = None,
 
@@ -233,7 +232,7 @@ def main(
 
     # Initialize the optimizer
     optimizer = None
-    if use_8bit_adam:
+    if use_optimizer == 'AdamW8bit':
         try:
             import bitsandbytes as bnb
         except ImportError:
@@ -242,7 +241,7 @@ def main(
             )
 
         optimizer_cls = bnb.optim.AdamW8bit
-    elif use_dadapt_adam:
+    elif use_optimizer == 'DAdaptation':
         try:
             import dadaptation
         except ImportError:
@@ -252,7 +251,21 @@ def main(
 
         optimizer = dadaptation.DAdaptAdam(
             unet.parameters(),
-            lr=1.0,
+            lr=1.,
+            weight_decay=adam_weight_decay,
+        )
+    elif use_optimizer == 'Prodigy':
+        try:
+            import prodigyopt
+        except ImportError:
+            raise ImportError(
+                "Please install prodigyopt. You can do so by running `pip install prodigyopt`"
+            )
+
+        optimizer = prodigyopt.Prodigy(
+            unet.parameters(),
+            lr=1.,
+            weight_decay=adam_weight_decay,
         )
     else:
         optimizer_cls = torch.optim.AdamW
