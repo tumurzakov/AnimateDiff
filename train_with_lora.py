@@ -242,6 +242,7 @@ def main(
 
         optimizer_cls = bnb.optim.AdamW8bit
     elif use_dadapt_adam:
+        print("Optim DAdaptAdam")
         import dadaptation
         optimizer_cls = dadaptation.DAdaptAdam
     else:
