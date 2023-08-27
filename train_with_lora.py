@@ -42,7 +42,7 @@ check_min_version("0.10.0.dev0")
 
 logger = get_logger(__name__, log_level="INFO")
 
-def load_checkpoint(path, unet, vae):
+def load_checkpoint(path, unet, vae, text_encoder):
     if path.endswith(".ckpt"):
         state_dict = torch.load(path)
         unet.load_state_dict(state_dict)
@@ -57,12 +57,12 @@ def load_checkpoint(path, unet, vae):
 
         # vae
         converted_vae_checkpoint = convert_ldm_vae_checkpoint(base_state_dict, vae.config)
-        vae.load_state_dict(converted_vae_checkpoint)
+        #vae.load_state_dict(converted_vae_checkpoint)
         # unet
         converted_unet_checkpoint = convert_ldm_unet_checkpoint(base_state_dict, unet.config)
         unet.load_state_dict(converted_unet_checkpoint, strict=False)
         # text_model
-        text_encoder = convert_ldm_clip_checkpoint(base_state_dict)
+        #text_encoder = convert_ldm_clip_checkpoint(base_state_dict)
 
         return unet, vae, text_encoder
 
@@ -152,7 +152,7 @@ def main(
             unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs))
 
     if dreambooth_path != None:
-        unet, vae, text_encoder = load_checkpoint(dreambooth_path, unet, vae)
+        unet, vae, text_encoder = load_checkpoint(dreambooth_path, unet, vae, text_encoder)
 
     motion_module_state_dict = torch.load(motion_module, map_location="cpu")
 
