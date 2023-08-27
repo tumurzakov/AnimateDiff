@@ -262,10 +262,15 @@ def main(
                 "Please install prodigyopt. You can do so by running `pip install prodigyopt`"
             )
 
+        # https://rentry.org/59xed3
         optimizer = prodigyopt.Prodigy(
             unet.parameters(),
             lr=1.,
-            weight_decay=adam_weight_decay,
+            decouple=True,
+            weight_decay=0.01,
+            d_coef=2,
+            use_bias_correction=True,
+            safeguard_warmup=True,
         )
     else:
         optimizer_cls = torch.optim.AdamW
