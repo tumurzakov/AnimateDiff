@@ -251,6 +251,7 @@ def main(
             )
 
         optimizer = dadaptation.DAdaptAdam(
+            unet.parameters(),
             lr=1.0,
         )
     else:
