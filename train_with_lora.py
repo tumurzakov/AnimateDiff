@@ -95,6 +95,7 @@ def main(
     resume_from_checkpoint: Optional[str] = None,
     mixed_precision: Optional[str] = "fp16",
     use_8bit_adam: bool = False,
+    use_dadapt_adam: bool = False,
     enable_xformers_memory_efficient_attention: bool = True,
     seed: Optional[int] = None,
 
@@ -240,6 +241,9 @@ def main(
             )
 
         optimizer_cls = bnb.optim.AdamW8bit
+    elif use_dadapt_adam:
+        import dadaptation
+        optimizer_cls = dadaptation.DAdaptAdam
     else:
         optimizer_cls = torch.optim.AdamW
 
