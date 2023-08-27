@@ -118,14 +118,15 @@ def main(
     # Load scheduler, tokenizer and models.
     noise_scheduler = DDPMScheduler.from_pretrained(pretrained_model_path, subfolder="scheduler")
     tokenizer = CLIPTokenizer.from_pretrained(pretrained_model_path, subfolder="tokenizer")
+    text_encoder = CLIPTextModel.from_pretrained(pretrained_model_path, subfolder="text_encoder")
     vae = AutoencoderKL.from_pretrained(pretrained_model_path, subfolder="vae")
-    text_encoder = CLIPTextModel.from_pretrained(
-            dreambooth_path if dreambooth_path != None else pretrained_model_path,
-            subfolder="text_encoder")
     unet = UNet3DConditionModel.from_pretrained_2d(
-            dreambooth_path if dreambooth_path != None else pretrained_model_path,
+            pretrained_model_path,
             subfolder="unet",
             unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs))
+
+    if dreambooth_path != None:
+        unet.load_attn_procs(dreambooth_path)
 
     motion_module_state_dict = torch.load(motion_module, map_location="cpu")
 
