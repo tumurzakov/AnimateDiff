@@ -42,23 +42,29 @@ check_min_version("0.10.0.dev0")
 
 logger = get_logger(__name__, log_level="INFO")
 
-def load_checkpoint(path):
-    state_dict = {}
-    with safe_open(path, framework="pt", device="cpu") as f:
-        for key in f.keys():
-            state_dict[key] = f.get_tensor(key)
+def load_checkpoint(path, unet, vae):
+    if path.endswith(".ckpt"):
+        state_dict = torch.load(path)
+        unet.load_state_dict(state_dict)
 
-    base_state_dict = state_dict
+    elif path.endswith(".safetensors"):
+        state_dict = {}
+        with safe_open(path, framework="pt", device="cpu") as f:
+            for key in f.keys():
+                state_dict[key] = f.get_tensor(key)
 
-    # vae
-    converted_vae_checkpoint = convert_ldm_vae_checkpoint(base_state_dict, pipeline.vae.config)
-    # unet
-    converted_unet_checkpoint = convert_ldm_unet_checkpoint(base_state_dict, pipeline.unet.config)
-    # text_model
-    text_encoder = convert_ldm_clip_checkpoint(base_state_dict)
+        base_state_dict = state_dict
 
-    return converted_unet_checkpoint, converted_vae_checkpoint, text_encoder
+        # vae
+        converted_vae_checkpoint = convert_ldm_vae_checkpoint(base_state_dict, vae.config)
+        vae.load_state_dict(vae_checkpoint)
+        # unet
+        converted_unet_checkpoint = convert_ldm_unet_checkpoint(base_state_dict, unet.config)
+        unet.load_state_dict(unet_checkpoint, strict=False)
+        # text_model
+        text_encoder = convert_ldm_clip_checkpoint(base_state_dict)
 
+        return unet, vae, text_encoder
 
 def main(
     pretrained_model_path: str,
@@ -146,9 +152,7 @@ def main(
             unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs))
 
     if dreambooth_path != None:
-        unet_state_dict, vae_state_dict, text_encoder = load_checkpoint(dreambooth_path)
-        unet.load_state_dict(unet_checkpoint, strict=False)
-        vae.load_state_dict(vae_checkpoint)
+        unet, vae, text_encoder = load_checkpoint(dreambooth_path, unet, vae)
 
     motion_module_state_dict = torch.load(motion_module, map_location="cpu")
 
