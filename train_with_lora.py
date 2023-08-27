@@ -46,6 +46,7 @@ def main(
     train_data: Dict,
     validation_data: Dict,
     validation_steps: int = 100,
+    dreambooth_path: str = None,
     train_whole_module: bool = False,
     trainable_modules: Tuple[str] = (
         "to_q",
@@ -117,10 +118,12 @@ def main(
     # Load scheduler, tokenizer and models.
     noise_scheduler = DDPMScheduler.from_pretrained(pretrained_model_path, subfolder="scheduler")
     tokenizer = CLIPTokenizer.from_pretrained(pretrained_model_path, subfolder="tokenizer")
-    text_encoder = CLIPTextModel.from_pretrained(pretrained_model_path, subfolder="text_encoder")
     vae = AutoencoderKL.from_pretrained(pretrained_model_path, subfolder="vae")
+    text_encoder = CLIPTextModel.from_pretrained(
+            dreambooth_path if dreambooth_path != None else pretrained_model_path,
+            subfolder="text_encoder")
     unet = UNet3DConditionModel.from_pretrained_2d(
-            pretrained_model_path,
+            dreambooth_path if dreambooth_path != None else pretrained_model_path,
             subfolder="unet",
             unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs))
 
