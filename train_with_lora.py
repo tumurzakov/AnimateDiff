@@ -43,26 +43,21 @@ check_min_version("0.10.0.dev0")
 logger = get_logger(__name__, log_level="INFO")
 
 def load_checkpoint(path):
-    if path.endswith(".ckpt"):
-        state_dict = torch.load(path)
-        pipeline.unet.load_state_dict(state_dict)
+    state_dict = {}
+    with safe_open(path, framework="pt", device="cpu") as f:
+        for key in f.keys():
+            state_dict[key] = f.get_tensor(key)
 
-    elif path.endswith(".safetensors"):
-        state_dict = {}
-        with safe_open(path, framework="pt", device="cpu") as f:
-            for key in f.keys():
-                state_dict[key] = f.get_tensor(key)
+    base_state_dict = state_dict
 
-        base_state_dict = state_dict
+    # vae
+    converted_vae_checkpoint = convert_ldm_vae_checkpoint(base_state_dict, pipeline.vae.config)
+    # unet
+    converted_unet_checkpoint = convert_ldm_unet_checkpoint(base_state_dict, pipeline.unet.config)
+    # text_model
+    text_encoder = convert_ldm_clip_checkpoint(base_state_dict)
 
-        # vae
-        converted_vae_checkpoint = convert_ldm_vae_checkpoint(base_state_dict, pipeline.vae.config)
-        # unet
-        converted_unet_checkpoint = convert_ldm_unet_checkpoint(base_state_dict, pipeline.unet.config)
-        # text_model
-        text_encoder = convert_ldm_clip_checkpoint(base_state_dict)
-
-        return converted_unet_checkpoint, converted_vae_checkpoint, text_encoder
+    return converted_unet_checkpoint, converted_vae_checkpoint, text_encoder
 
 
 def main(
