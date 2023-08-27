@@ -453,11 +453,12 @@ def main(
 
                 if global_step % checkpointing_steps == 0:
                     if accelerator.is_main_process:
-                        save_path = os.path.join(output_dir, f"mm-{global_step}.pth")
-                        save_mm_checkpoint(unet, save_path)
-                        logger.info(f"Saved mm state to {save_path}")
+                        if train_whole_module or len(trainable_modules) > 0:
+                            save_path = os.path.join(output_dir, f"mm-{global_step}.pth")
+                            save_mm_checkpoint(unet, save_path)
+                            logger.info(f"Saved mm state to {save_path}")
 
-                        save_path = os.path.join(output_dir, f"lora-{global_step}.pth")
+                        save_path = os.path.join(output_dir, f"lora-{global_step}")
                         save_lora_checkpoint(unet, save_path)
                         logger.info(f"Saved lora state to {save_path}")
 
@@ -504,8 +505,12 @@ def main(
             unet=unet,
         )
 
-        mm_path = "%s/mm.pth" % output_dir
-        save_mm_checkpoint(unet, mm_path)
+        if train_whole_module or len(trainable_modules) > 0:
+            mm_path = "%s/mm.pth" % output_dir
+            save_mm_checkpoint(unet, mm_path)
+
+        save_path = os.path.join(output_dir, f"lora")
+        save_lora_checkpoint(unet, save_path)
 
     accelerator.end_training()
 
