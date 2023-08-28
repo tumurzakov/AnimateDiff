@@ -871,7 +871,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                             control_model_input,
                             t,
                             encoder_hidden_states=multi_text_embeddings,
-                            controlnet_cond=image,
+                            controlnet_cond=image[seq],
                             conditioning_scale=cond_scale,
                             guess_mode=guess_mode,
                             return_dict=False,
