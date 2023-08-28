@@ -869,7 +869,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                         controlnet_image = []
                         for img in image:
                           cnet_image = img[seq]
-                          if guess_mode and do_classifier_free_guidance:
+                          if do_classifier_free_guidance and not guess_mode:
                             cnet_image = torch.cat([cnet_image]*2)
                           controlnet_image.append(cnet_image)
 
