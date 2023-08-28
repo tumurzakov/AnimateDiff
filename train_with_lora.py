@@ -203,10 +203,10 @@ def main(
             rank=lora_rank,
         )
 
-    unet.set_attn_processor(lora_attn_procs)
-
     if lora_resume_from_checkpoint != None:
         unet.load_attn_procs(lora_resume_from_checkpoint)
+    else:
+        unet.set_attn_processor(lora_attn_procs)
 
     # Freeze vae and text_encoder
     vae.requires_grad_(False)
