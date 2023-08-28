@@ -888,12 +888,12 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                             down_block_res_samples[i] = rearrange(
                                     down_block_res_samples[i],
                                     '(b f) c h w -> b c f h w',
-                                    f=video_length)
+                                    f=temporal_context)
 
                         mid_block_res_sample = rearrange(
                                 mid_block_res_sample,
                                 '(b f) c h w -> b c f h w',
-                                f=video_length)
+                                f=temporal_context)
 
                         if guess_mode and do_classifier_free_guidance:
                             # Infered ControlNet only for the conditional batch.
