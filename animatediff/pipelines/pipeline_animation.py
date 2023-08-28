@@ -866,12 +866,19 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                                 controlnet_cond_scale = controlnet_cond_scale[0]
                             cond_scale = controlnet_cond_scale * controlnet_keep[i]
 
+                        controlnet_image = []
+                        for img in image:
+                          cnet_image = img[seq]
+                          if guess_mode and do_classifier_free_guidance:
+                            cnet_image = torch.cat([cnet_image]*2)
+                          controlnet_image.append(cnet_image)
+
                         control_model_input = rearrange(control_model_input, "b c f h w -> (b f) c h w")
                         down_block_res_samples, mid_block_res_sample = self.controlnet(
                             control_model_input,
                             t,
                             encoder_hidden_states=multi_text_embeddings,
-                            controlnet_cond=image[seq],
+                            controlnet_cond=controlnet_image,
                             conditioning_scale=cond_scale,
                             guess_mode=guess_mode,
                             return_dict=False,
