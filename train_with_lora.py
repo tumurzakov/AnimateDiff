@@ -104,6 +104,7 @@ def main(
     dataset_class: str = 'MultiTuneAVideoDataset',
 
     lora_rank: int = 4,
+    report_to: str = None,
 ):
     *_, config = inspect.getargvalues(inspect.currentframe())
 
@@ -112,6 +113,7 @@ def main(
     accelerator = Accelerator(
         gradient_accumulation_steps=gradient_accumulation_steps,
         mixed_precision=mixed_precision,
+        log_with=report_to,
     )
 
     # Make one log on every process with the configuration for debugging.
