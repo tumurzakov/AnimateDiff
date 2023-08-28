@@ -212,7 +212,7 @@ class FramesDataset(Dataset):
         return candidates
 
     def __len__(self):
-        return self.sample_count
+        return len(self.samples)
 
     def __getitem__(self, index):
         meta = self.samples[index]
