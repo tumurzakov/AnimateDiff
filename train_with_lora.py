@@ -104,6 +104,7 @@ def main(
     dataset_class: str = 'MultiTuneAVideoDataset',
 
     lora_rank: int = 4,
+    lora_resume_from_checkpoint: Optional[str] = None,
     report_to: str = None,
 ):
     *_, config = inspect.getargvalues(inspect.currentframe())
@@ -203,6 +204,9 @@ def main(
         )
 
     unet.set_attn_processor(lora_attn_procs)
+
+    if lora_resume_from_checkpoint != None:
+        unet.load_attn_procs(lora_resume_from_checkpoint)
 
     # Freeze vae and text_encoder
     vae.requires_grad_(False)
