@@ -8,11 +8,11 @@
           if 'pe' in key:
             t = motion_module_state_dict[key]
             t = repeat(t, "b f d -> b (f m) d", m=motion_module_pe_multiplier)
-            motion_module_state_dict[key] = t 
+            motion_module_state_dict[key] = t
    ```
    I trained till 264 frames on A100
-   
-3. Train AnimateDiff + LoRA
+
+3. Train AnimateDiff + LoRA/DreamBooth
 4. Infinite infer (credits to [dajes](https://github.com/dajes)) (temporal_context and video_length params).
 5. ControlNet (works with Infinite infer). VRAM consumming. Can only infer 120 frames on single controlnet module on A100
 6. Prompt Walking. Start from Egg and finish with Duck
@@ -114,7 +114,7 @@ NewModel:
   motion_module:
     - "models/Motion_Module/mm_sd_v14.ckpt"
     - "models/Motion_Module/mm_sd_v15.ckpt"
-    
+
   steps:          25
   guidance_scale: 7.5
 
@@ -195,7 +195,7 @@ Here we demonstrate several best results we found in our experiments.
 ### Longer generations
 You can also generate longer animations by using overlapping sliding windows.
 ```
-python -m scripts.animate --config configs/prompts/{your_config}.yaml --L 64 --context_length 16 
+python -m scripts.animate --config configs/prompts/{your_config}.yaml --L 64 --context_length 16
 ```
 ##### Sliding window related parameters:
 
@@ -242,7 +242,7 @@ Here are some samples contributed by the community artists. Create a Pull Reques
     </tr>
 </table>
 <p style="margin-left: 2em; margin-top: -1em">
-Character Model：<a href="https://civitai.com/models/13237/genshen-impact-yoimiya">Yoimiya</a> 
+Character Model：<a href="https://civitai.com/models/13237/genshen-impact-yoimiya">Yoimiya</a>
 (with an initial reference image, see <a href="https://github.com/talesofai/AnimateDiff">WIP fork</a> for the extended implementation.)
 
 
@@ -261,7 +261,7 @@ Pose Model：<a href="https://civitai.com/models/107295/or-holdingsign">Hold Sig
 ## BibTeX
 ```
 @misc{guo2023animatediff,
-      title={AnimateDiff: Animate Your Personalized Text-to-Image Diffusion Models without Specific Tuning}, 
+      title={AnimateDiff: Animate Your Personalized Text-to-Image Diffusion Models without Specific Tuning},
       author={Yuwei Guo, Ceyuan Yang, Anyi Rao, Yaohui Wang, Yu Qiao, Dahua Lin, Bo Dai},
       year={2023},
       eprint={2307.04725},
@@ -271,8 +271,8 @@ Pose Model：<a href="https://civitai.com/models/107295/or-holdingsign">Hold Sig
 ```
 
 ## Contact Us
-**Yuwei Guo**: [guoyuwei@pjlab.org.cn](mailto:guoyuwei@pjlab.org.cn)  
-**Ceyuan Yang**: [yangceyuan@pjlab.org.cn](mailto:yangceyuan@pjlab.org.cn)  
+**Yuwei Guo**: [guoyuwei@pjlab.org.cn](mailto:guoyuwei@pjlab.org.cn)
+**Ceyuan Yang**: [yangceyuan@pjlab.org.cn](mailto:yangceyuan@pjlab.org.cn)
 **Bo Dai**: [daibo@pjlab.org.cn](mailto:daibo@pjlab.org.cn)
 
 ## Acknowledgements
