@@ -103,6 +103,7 @@ def main(
     motion_module_pe_multiplier: int = 1,
     dataset_class: str = 'MultiTuneAVideoDataset',
 
+    train_lora: bool = False,
     lora_rank: int = 4,
     lora_resume_from_checkpoint: Optional[str] = None,
     report_to: str = None,
@@ -203,10 +204,11 @@ def main(
             rank=lora_rank,
         )
 
-    if lora_resume_from_checkpoint != None:
-        unet.load_attn_procs(lora_resume_from_checkpoint)
-    else:
-        unet.set_attn_processor(lora_attn_procs)
+    if train_lora:
+        if lora_resume_from_checkpoint != None:
+            unet.load_attn_procs(lora_resume_from_checkpoint)
+        else:
+            unet.set_attn_processor(lora_attn_procs)
 
     # Freeze vae and text_encoder
     vae.requires_grad_(False)
@@ -218,9 +220,10 @@ def main(
             for params in module.parameters():
                 params.requires_grad = True
 
-    lora_layers = AttnProcsLayers(unet.attn_processors)
-    for param in lora_layers.parameters():
-        param.requires_grad = True
+    if train_lora:
+		lora_layers = AttnProcsLayers(unet.attn_processors)
+		for param in lora_layers.parameters():
+			param.requires_grad = True
 
     if enable_xformers_memory_efficient_attention:
         if is_xformers_available():
