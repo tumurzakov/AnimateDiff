@@ -467,10 +467,10 @@ def main(
                             save_mm_checkpoint(unet, save_path)
                             logger.info(f"Saved mm state to {save_path}")
 
-						if train_lora:
-							save_path = os.path.join(output_dir, f"lora-{global_step}")
-							save_lora_checkpoint(unet, save_path)
-							logger.info(f"Saved lora state to {save_path}")
+                        if train_lora:
+                            save_path = os.path.join(output_dir, f"lora-{global_step}")
+                            save_lora_checkpoint(unet, save_path)
+                            logger.info(f"Saved lora state to {save_path}")
 
                 if global_step % validation_steps == 0:
                     if accelerator.is_main_process:
