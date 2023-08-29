@@ -1,3 +1,29 @@
+# TUmurzakov
+
+1. Train AnimateDiff (24+ frames by multiplying existing module by scale factor and finetune)
+   ```
+   # Multiply pe weights by multiplier for training more than 24 frames
+    if motion_module_pe_multiplier > 1:
+        for key in motion_module_state_dict:
+          if 'pe' in key:
+            t = motion_module_state_dict[key]
+            t = repeat(t, "b f d -> b (f m) d", m=motion_module_pe_multiplier)
+            motion_module_state_dict[key] = t 
+   ```
+   I trained till 264 frames on A100
+   
+3. Train AnimateDiff + LoRA
+4. Infinite infer (credits to [dajes](https://github.com/dajes)) (temporal_context and video_length params).
+5. ControlNet (works with Infinite infer). VRAM consumming. Can only infer 120 frames on single controlnet module on A100
+6. Prompt Walking. Start from Egg and finish with Duck
+   ```
+   {
+     0: "Egg",
+     10: "Duck",
+   }
+   ```
+7. Updated to last diffusers version
+
 # AnimateDiff
 
 <a target="_blank" href="https://colab.research.google.com/github/tumurzakov/AnimateDiff/blob/main/Fine_tune_AnimateDiff.ipynb">
