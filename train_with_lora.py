@@ -156,56 +156,57 @@ def main(
             subfolder="unet",
             unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs))
 
-    if dreambooth_path != None:
+    if dreambooth_path != None and dreambooth_path != "":
         unet, vae, text_encoder = load_checkpoint(dreambooth_path, unet, vae, text_encoder)
 
-    motion_module_state_dict = torch.load(motion_module, map_location="cpu")
+    if motion_module != None and motion_module != "":
+        motion_module_state_dict = torch.load(motion_module, map_location="cpu")
 
-    # Multiply pe weights by multiplier for training more than 24 frames
-    if motion_module_pe_multiplier > 1:
-        for key in motion_module_state_dict:
-          if 'pe' in key:
-            t = motion_module_state_dict[key]
-            t = repeat(t, "b f d -> b (f m) d", m=motion_module_pe_multiplier)
-            motion_module_state_dict[key] = t
+        # Multiply pe weights by multiplier for training more than 24 frames
+        if motion_module_pe_multiplier > 1:
+            for key in motion_module_state_dict:
+              if 'pe' in key:
+                t = motion_module_state_dict[key]
+                t = repeat(t, "b f d -> b (f m) d", m=motion_module_pe_multiplier)
+                motion_module_state_dict[key] = t
 
-    if "global_step" in motion_module_state_dict: func_args.update({"global_step": motion_module_state_dict["global_step"]})
-    missing, unexpected = unet.load_state_dict(motion_module_state_dict, strict=False)
-    assert len(unexpected) == 0
-
-    # now we will add new LoRA weights to the attention layers
-    # It's important to realize here how many attention weights will be added and of which sizes
-    # The sizes of the attention layers consist only of two different variables:
-    # 1) - the "hidden_size", which is increased according to `unet.config.block_out_channels`.
-    # 2) - the "cross attention size", which is set to `unet.config.cross_attention_dim`.
-
-    # Let's first see how many attention processors we will have to set.
-    # For Stable Diffusion, it should be equal to:
-    # - down blocks (2x attention layers) * (2x transformer layers) * (3x down blocks) = 12
-    # - mid blocks (2x attention layers) * (1x transformer layers) * (1x mid blocks) = 2
-    # - up blocks (2x attention layers) * (3x transformer layers) * (3x down blocks) = 18
-    # => 32 layers
-
-    # Set correct lora layers
-    lora_attn_procs = {}
-    for name in unet.attn_processors.keys():
-        cross_attention_dim = None if name.endswith("attn1.processor") else unet.config.cross_attention_dim
-        if name.startswith("mid_block"):
-            hidden_size = unet.config.block_out_channels[-1]
-        elif name.startswith("up_blocks"):
-            block_id = int(name[len("up_blocks.")])
-            hidden_size = list(reversed(unet.config.block_out_channels))[block_id]
-        elif name.startswith("down_blocks"):
-            block_id = int(name[len("down_blocks.")])
-            hidden_size = unet.config.block_out_channels[block_id]
-
-        lora_attn_procs[name] = LoRAAttnProcessor(
-            hidden_size=hidden_size,
-            cross_attention_dim=cross_attention_dim,
-            rank=lora_rank,
-        )
+        if "global_step" in motion_module_state_dict: func_args.update({"global_step": motion_module_state_dict["global_step"]})
+        missing, unexpected = unet.load_state_dict(motion_module_state_dict, strict=False)
+        assert len(unexpected) == 0
 
     if train_lora:
+        # now we will add new LoRA weights to the attention layers
+        # It's important to realize here how many attention weights will be added and of which sizes
+        # The sizes of the attention layers consist only of two different variables:
+        # 1) - the "hidden_size", which is increased according to `unet.config.block_out_channels`.
+        # 2) - the "cross attention size", which is set to `unet.config.cross_attention_dim`.
+
+        # Let's first see how many attention processors we will have to set.
+        # For Stable Diffusion, it should be equal to:
+        # - down blocks (2x attention layers) * (2x transformer layers) * (3x down blocks) = 12
+        # - mid blocks (2x attention layers) * (1x transformer layers) * (1x mid blocks) = 2
+        # - up blocks (2x attention layers) * (3x transformer layers) * (3x down blocks) = 18
+        # => 32 layers
+
+        # Set correct lora layers
+        lora_attn_procs = {}
+        for name in unet.attn_processors.keys():
+            cross_attention_dim = None if name.endswith("attn1.processor") else unet.config.cross_attention_dim
+            if name.startswith("mid_block"):
+                hidden_size = unet.config.block_out_channels[-1]
+            elif name.startswith("up_blocks"):
+                block_id = int(name[len("up_blocks.")])
+                hidden_size = list(reversed(unet.config.block_out_channels))[block_id]
+            elif name.startswith("down_blocks"):
+                block_id = int(name[len("down_blocks.")])
+                hidden_size = unet.config.block_out_channels[block_id]
+
+            lora_attn_procs[name] = LoRAAttnProcessor(
+                hidden_size=hidden_size,
+                cross_attention_dim=cross_attention_dim,
+                rank=lora_rank,
+            )
+
         if lora_resume_from_checkpoint != None:
             unet.load_attn_procs(lora_resume_from_checkpoint)
         else:
