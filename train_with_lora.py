@@ -542,7 +542,7 @@ def save_mm_checkpoint(unet, mm_path):
 def save_lora_checkpoint(unet, lora_path):
     unet.save_attn_procs(lora_path)
 
-def save_dreambooth_checkpoint(pipeline, output_dir, use_safetensors = True):
+def save_dreambooth_checkpoint(pipeline, output_dir, use_safetensors = False):
     pipeline.save_pretrained(output_dir, safe_serialization=use_safetensors)
 
 
