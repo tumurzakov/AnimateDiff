@@ -221,9 +221,9 @@ def main(
                 params.requires_grad = True
 
     if train_lora:
-		lora_layers = AttnProcsLayers(unet.attn_processors)
-		for param in lora_layers.parameters():
-			param.requires_grad = True
+        lora_layers = AttnProcsLayers(unet.attn_processors)
+        for param in lora_layers.parameters():
+            param.requires_grad = True
 
     if enable_xformers_memory_efficient_attention:
         if is_xformers_available():
