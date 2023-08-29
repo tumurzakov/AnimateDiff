@@ -103,6 +103,7 @@ def main(
     motion_module_pe_multiplier: int = 1,
     dataset_class: str = 'MultiTuneAVideoDataset',
 
+    train_dreambooth: bool = False,
     train_lora: bool = False,
     lora_rank: int = 4,
     lora_resume_from_checkpoint: Optional[str] = None,
@@ -214,7 +215,9 @@ def main(
     vae.requires_grad_(False)
     text_encoder.requires_grad_(False)
 
-    unet.requires_grad_(False)
+    if not train_dreambooth:
+        unet.requires_grad_(False)
+
     for name, module in unet.named_modules():
         if "motion_modules" in name and (train_whole_module or name.endswith(tuple(trainable_modules))):
             for params in module.parameters():
@@ -472,6 +475,9 @@ def main(
                             save_lora_checkpoint(unet, save_path)
                             logger.info(f"Saved lora state to {save_path}")
 
+                        if train_dreambooth:
+                            save_dreambooth_checkpoint(validation_pipeline, f"db-{global_step}")
+
                 if global_step % validation_steps == 0:
                     if accelerator.is_main_process:
                         samples = []
@@ -535,6 +541,9 @@ def save_mm_checkpoint(unet, mm_path):
 
 def save_lora_checkpoint(unet, lora_path):
     unet.save_attn_procs(lora_path)
+
+def save_dreambooth_checkpoint(pipeline, output_dir, safe_serialization = True):
+    pipeline.save_pretrained(output_dir, safe_serialization=use_safetensors)
 
 
 if __name__ == "__main__":
