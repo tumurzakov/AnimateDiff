@@ -475,7 +475,7 @@ def main(
                             logger.info(f"Saved lora state to {save_path}")
 
                         if train_dreambooth:
-                            save_path = os.path.join(output_dir, f"lora-{global_step}")
+                            save_path = os.path.join(output_dir, f"db-{global_step}")
                             save_dreambooth_checkpoint(validation_pipeline, save_path)
 
                 if global_step % validation_steps == 0:
