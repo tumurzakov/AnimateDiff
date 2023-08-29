@@ -14,7 +14,7 @@
    
 3. Train AnimateDiff + LoRA
 4. Infinite infer (credits to [dajes](https://github.com/dajes)) (temporal_context and video_length params).
-5. ControlNet (works with Infinite infer)
+5. ControlNet (works with Infinite infer). VRAM consumming. Can only infer 120 frames on single controlnet module on A100
 6. Prompt Walking. Start from Egg and finish with Duck
    ```
    {
