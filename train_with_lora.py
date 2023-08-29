@@ -215,7 +215,7 @@ def main(
     # Freeze vae and text_encoder
     vae.requires_grad_(False)
     text_encoder.requires_grad_(False)
-    unet.requires_grad_(not train_dreambooth)
+    unet.requires_grad_(train_dreambooth)
 
     for name, module in unet.named_modules():
         if "motion_modules" in name and (train_whole_module or name.endswith(tuple(trainable_modules))):
