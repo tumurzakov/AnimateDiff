@@ -525,8 +525,14 @@ def main(
             mm_path = "%s/mm.pth" % output_dir
             save_mm_checkpoint(unet, mm_path)
 
-        save_path = os.path.join(output_dir, f"lora")
-        save_lora_checkpoint(unet, save_path)
+        if train_lora:
+            save_path = os.path.join(output_dir, f"lora")
+            save_lora_checkpoint(unet, save_path)
+
+        if train_dreambooth:
+            save_path = os.path.join(output_dir, f"db")
+            save_dreambooth_checkpoint(validation_pipeline, save_path)
+
 
     accelerator.end_training()
 
