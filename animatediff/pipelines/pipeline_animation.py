@@ -1,11 +1,13 @@
 # Adapted from https://github.com/showlab/Tune-A-Video/blob/main/tuneavideo/pipelines/pipeline_tuneavideo.py
 
 import inspect
-from typing import Callable, List, Optional, Union
+import os
+from typing import Tuple, Callable, List, Optional, Union, Dict, Any
 from dataclasses import dataclass
 
 import numpy as np
 import torch
+from torch import nn
 from tqdm import tqdm
 
 from diffusers.utils import is_accelerate_available
@@ -13,7 +15,7 @@ from packaging import version
 from transformers import CLIPTextModel, CLIPTokenizer
 
 from diffusers.configuration_utils import FrozenDict
-from diffusers.models import AutoencoderKL
+from diffusers.models import AutoencoderKL, ControlNetModel
 from diffusers.pipeline_utils import DiffusionPipeline
 from diffusers.schedulers import (
     DDIMScheduler,
@@ -23,12 +25,23 @@ from diffusers.schedulers import (
     LMSDiscreteScheduler,
     PNDMScheduler,
 )
-from diffusers.utils import deprecate, logging, BaseOutput
+from diffusers.utils import deprecate, logging, BaseOutput, is_compiled_module
+from diffusers.pipelines.controlnet import MultiControlNetModel
 
-from einops import rearrange
+from einops import rearrange, repeat
 
 from ..models.unet import UNet3DConditionModel
 
+from ..utils import overlap_policy
+from ..utils.path import get_absolute_path
+from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
+
+from diffusers.image_processor import VaeImageProcessor
+
+from compel import Compel, DiffusersTextualInversionManager
+import PIL
+
+import torch.nn.functional as F
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -37,8 +50,7 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 class AnimationPipelineOutput(BaseOutput):
     videos: Union[torch.Tensor, np.ndarray]
 
-
-class AnimationPipeline(DiffusionPipeline):
+class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixin):
     _optional_components = []
 
     def __init__(
@@ -55,6 +67,8 @@ class AnimationPipeline(DiffusionPipeline):
             EulerAncestralDiscreteScheduler,
             DPMSolverMultistepScheduler,
         ],
+        scan_inversions: bool = True,
+        controlnet: Union[ControlNetModel, List[ControlNetModel], Tuple[ControlNetModel], MultiControlNetModel] = None,
     ):
         super().__init__()
 
@@ -106,14 +120,59 @@ class AnimationPipeline(DiffusionPipeline):
             new_config["sample_size"] = 64
             unet._internal_dict = FrozenDict(new_config)
 
+        if isinstance(controlnet, (list, tuple)):
+            controlnet = MultiControlNetModel(controlnet)
+
         self.register_modules(
             vae=vae,
             text_encoder=text_encoder,
             tokenizer=tokenizer,
             unet=unet,
             scheduler=scheduler,
+            controlnet=controlnet,
         )
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
+        self.embeddings_dir = get_absolute_path('models', 'embeddings')
+        self.embeddings_dict = {}
+        self.default_tokens = len(self.tokenizer)
+        self.scan_inversions = scan_inversions
+
+        textual_inversion_manager = DiffusersTextualInversionManager(self)
+        self.compel = Compel(
+            tokenizer=tokenizer,
+            text_encoder=text_encoder,
+            textual_inversion_manager=textual_inversion_manager,
+        )
+
+        self.control_image_processor = VaeImageProcessor(
+            vae_scale_factor=self.vae_scale_factor, do_convert_rgb=True, do_normalize=False
+        )
+
+    def update_embeddings(self):
+        if not self.scan_inversions:
+            return
+        names = [p for p in os.listdir(self.embeddings_dir) if p.endswith('.pt')]
+        weight = self.text_encoder.text_model.embeddings.token_embedding.weight
+        added_embeddings = []
+        for name in names:
+            embedding_path = os.path.join(self.embeddings_dir, name)
+            embedding = torch.load(embedding_path)
+            key = os.path.splitext(name)[0]
+            if key in self.tokenizer.encoder:
+                idx = self.tokenizer.encoder[key]
+            else:
+                idx = len(self.tokenizer)
+                self.tokenizer.add_tokens([key])
+            embedding = embedding['string_to_param']['*']
+            if idx not in self.embeddings_dict:
+                added_embeddings.append(name)
+                self.embeddings_dict[idx] = torch.arange(weight.shape[0], weight.shape[0] + embedding.shape[0])
+                weight = torch.cat([weight, embedding.to(weight.device, weight.dtype)], dim=0)
+                self.tokenizer.add_tokens([key])
+        if added_embeddings:
+            self.text_encoder.text_model.embeddings.token_embedding = nn.Embedding(
+                weight.shape[0], weight.shape[1], _weight=weight)
+            logger.info(f'Added {len(added_embeddings)} embeddings: {added_embeddings}')
 
     def enable_vae_slicing(self):
         self.vae.enable_slicing()
@@ -147,9 +206,86 @@ class AnimationPipeline(DiffusionPipeline):
                 return torch.device(module._hf_hook.execution_device)
         return self.device
 
-    def _encode_prompt(self, prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt):
+    def insert_inversions(self, ids, attention_mask):
+        larger = ids >= self.default_tokens
+        for idx in reversed(torch.where(larger)[1]):
+            ids = torch.cat([
+                ids[:, :idx],
+                self.embeddings_dict[ids[:, idx].item()].unsqueeze(0),
+                ids[:, idx + 1:],
+            ], 1)
+            if attention_mask is not None:
+                attention_mask = torch.cat([
+                    attention_mask[:, :idx],
+                    torch.ones(1, 1, dtype=attention_mask.dtype, device=attention_mask.device),
+                    attention_mask[:, idx + 1:],
+                ], 1)
+        if ids.shape[1] > self.tokenizer.model_max_length:
+            logger.warning(f"After inserting inversions, the sequence length is larger than the max length. Cutting off"
+                           f" {ids.shape[1] - self.tokenizer.model_max_length} tokens.")
+            ids = torch.cat([ids[:, :self.tokenizer.model_max_length - 1], ids[:, -1:]], 1)
+            if attention_mask is not None:
+                attention_mask = attention_mask[:, :self.tokenizer.model_max_length]
+        return ids, attention_mask
+
+    def _encode_prompt_compel(self, prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt):
         batch_size = len(prompt) if isinstance(prompt, list) else 1
 
+        self.update_embeddings()
+
+        text_embeddings = self.compel(prompt)
+
+        # duplicate text embeddings for each generation per prompt, using mps friendly method
+        bs_embed, seq_len, _ = text_embeddings.shape
+        text_embeddings = text_embeddings.repeat(1, num_videos_per_prompt, 1)
+        text_embeddings = text_embeddings.view(bs_embed * num_videos_per_prompt, seq_len, -1)
+
+        # get unconditional embeddings for classifier free guidance
+        if do_classifier_free_guidance:
+            uncond_embeddings = self.compel(negative_prompt)
+
+            # duplicate unconditional embeddings for each generation per prompt, using mps friendly method
+            seq_len = uncond_embeddings.shape[1]
+            uncond_embeddings = uncond_embeddings.repeat(1, num_videos_per_prompt, 1)
+            uncond_embeddings = uncond_embeddings.view(batch_size * num_videos_per_prompt, seq_len, -1)
+
+            # For classifier free guidance, we need to do two forward passes.
+            # Here we concatenate the unconditional and text embeddings into a single batch
+            # to avoid doing two forward passes
+            text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
+
+        return text_embeddings
+
+    def _encode_prompt(self,
+                       compel,
+                       prompt,
+                       device,
+                       num_videos_per_prompt,
+                       do_classifier_free_guidance,
+                       negative_prompt,
+                       lora_scale: Optional[float] = None,
+                       ):
+        # set lora scale so that monkey patched LoRA
+        # function of text encoder can correctly access it
+        if lora_scale is not None and isinstance(self, LoraLoaderMixin):
+            self._lora_scale = lora_scale
+
+
+        if not compel:
+          text_embeddings = self._encode_prompt_orig(
+              prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt
+          )
+
+        if compel:
+          text_embeddings = self._encode_prompt_compel(
+              prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt
+          )
+        return text_embeddings
+
+    def _encode_prompt_orig(self, prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt):
+        batch_size = len(prompt) if isinstance(prompt, list) else 1
+
+        self.update_embeddings()
         text_inputs = self.tokenizer(
             prompt,
             padding="max_length",
@@ -172,6 +308,7 @@ class AnimationPipeline(DiffusionPipeline):
         else:
             attention_mask = None
 
+        text_input_ids, attention_mask = self.insert_inversions(text_input_ids, attention_mask)
         text_embeddings = self.text_encoder(
             text_input_ids.to(device),
             attention_mask=attention_mask,
@@ -218,8 +355,10 @@ class AnimationPipeline(DiffusionPipeline):
             else:
                 attention_mask = None
 
+            uncond_input_ids = uncond_input.input_ids
+            uncond_input_ids, attention_mask = self.insert_inversions(uncond_input_ids, attention_mask)
             uncond_embeddings = self.text_encoder(
-                uncond_input.input_ids.to(device),
+                uncond_input_ids.to(device),
                 attention_mask=attention_mask,
             )
             uncond_embeddings = uncond_embeddings[0]
@@ -242,8 +381,9 @@ class AnimationPipeline(DiffusionPipeline):
         latents = rearrange(latents, "b c f h w -> (b f) c h w")
         # video = self.vae.decode(latents).sample
         video = []
+        device = self._execution_device
         for frame_idx in tqdm(range(latents.shape[0])):
-            video.append(self.vae.decode(latents[frame_idx:frame_idx+1]).sample)
+            video.append(self.vae.decode(latents[frame_idx:frame_idx+1].to(device)).sample)
         video = torch.cat(video)
         video = rearrange(video, "(b f) c h w -> b c f h w", f=video_length)
         video = (video / 2 + 0.5).clamp(0, 1)
@@ -269,7 +409,7 @@ class AnimationPipeline(DiffusionPipeline):
         return extra_step_kwargs
 
     def check_inputs(self, prompt, height, width, callback_steps):
-        if not isinstance(prompt, str) and not isinstance(prompt, list):
+        if not isinstance(prompt, str) and not isinstance(prompt, list)  and not isinstance(prompt, dict):
             raise ValueError(f"`prompt` has to be of type `str` or `list` but is {type(prompt)}")
 
         if height % 8 != 0 or width % 8 != 0:
@@ -283,8 +423,156 @@ class AnimationPipeline(DiffusionPipeline):
                 f" {type(callback_steps)}."
             )
 
+    def check_cnet_inputs(
+        self,
+        prompt,
+        image,
+        callback_steps,
+        negative_prompt=None,
+        controlnet_conditioning_scale=1.0,
+        control_guidance_start=0.0,
+        control_guidance_end=1.0,
+    ):
+        # `prompt` needs more sophisticated handling when there are multiple
+        # conditionings.
+        if isinstance(self.controlnet, MultiControlNetModel):
+            if isinstance(prompt, list):
+                logger.warning(
+                    f"You have {len(self.controlnet.nets)} ControlNets and you have passed {len(prompt)}"
+                    " prompts. The conditionings will be fixed across the prompts."
+                )
+
+        # Check `image`
+        is_compiled = hasattr(F, "scaled_dot_product_attention") and isinstance(
+            self.controlnet, torch._dynamo.eval_frame.OptimizedModule
+        )
+        if (
+            isinstance(self.controlnet, ControlNetModel)
+            or is_compiled
+            and isinstance(self.controlnet._orig_mod, ControlNetModel)
+        ):
+            self.check_image(image, prompt)
+        elif (
+            isinstance(self.controlnet, MultiControlNetModel)
+            or is_compiled
+            and isinstance(self.controlnet._orig_mod, MultiControlNetModel)
+        ):
+            if not isinstance(image, list):
+                raise TypeError("For multiple controlnets: `image` must be type `list`")
+
+            # When `image` is a nested list:
+            # (e.g. [[canny_image_1, pose_image_1], [canny_image_2, pose_image_2]])
+            elif any(isinstance(i, list) for i in image):
+                raise ValueError("A single batch of multiple conditionings are supported at the moment.")
+            elif len(image) != len(self.controlnet.nets):
+                raise ValueError(
+                    f"For multiple controlnets: `image` must have the same length as the number of controlnets, but got {len(image)} images and {len(self.controlnet.nets)} ControlNets."
+                )
+
+            for image_ in image:
+                self.check_image(image_, prompt)
+        else:
+            assert False
+
+        # Check `controlnet_conditioning_scale`
+        if (
+            isinstance(self.controlnet, ControlNetModel)
+            or is_compiled
+            and isinstance(self.controlnet._orig_mod, ControlNetModel)
+        ):
+            if not isinstance(controlnet_conditioning_scale, float):
+                raise TypeError("For single controlnet: `controlnet_conditioning_scale` must be type `float`.")
+        elif (
+            isinstance(self.controlnet, MultiControlNetModel)
+            or is_compiled
+            and isinstance(self.controlnet._orig_mod, MultiControlNetModel)
+        ):
+            if isinstance(controlnet_conditioning_scale, list):
+                if any(isinstance(i, list) for i in controlnet_conditioning_scale):
+                    raise ValueError("A single batch of multiple conditionings are supported at the moment.")
+            elif isinstance(controlnet_conditioning_scale, list) and len(controlnet_conditioning_scale) != len(
+                self.controlnet.nets
+            ):
+                raise ValueError(
+                    "For multiple controlnets: When `controlnet_conditioning_scale` is specified as `list`, it must have"
+                    " the same length as the number of controlnets"
+                )
+        else:
+            assert False
+
+    def check_image(self, image, prompt):
+        image_is_pil = isinstance(image, PIL.Image.Image)
+        image_is_tensor = isinstance(image, torch.Tensor)
+        image_is_np = isinstance(image, np.ndarray)
+        image_is_pil_list = isinstance(image, list) and isinstance(image[0], PIL.Image.Image)
+        image_is_tensor_list = isinstance(image, list) and isinstance(image[0], torch.Tensor)
+        image_is_np_list = isinstance(image, list) and isinstance(image[0], np.ndarray)
+
+        if (
+            not image_is_pil
+            and not image_is_tensor
+            and not image_is_np
+            and not image_is_pil_list
+            and not image_is_tensor_list
+            and not image_is_np_list
+        ):
+            raise TypeError(
+                f"image must be passed and be one of PIL image, numpy array, torch tensor, list of PIL images, list of numpy arrays or list of torch tensors, but is {type(image)}"
+            )
+
+        #if image_is_pil:
+        #    image_batch_size = 1
+        #else:
+        #    image_batch_size = len(image)
+
+        #if prompt is not None and isinstance(prompt, str):
+        #    prompt_batch_size = 1
+        #elif prompt is not None and isinstance(prompt, list):
+        #    prompt_batch_size = len(prompt)
+
+        #if image_batch_size != 1 and image_batch_size != prompt_batch_size:
+        #    raise ValueError(
+        #        f"If image batch size is not 1, image batch size must be same as prompt batch size. image batch size: {image_batch_size}, prompt batch size: {prompt_batch_size}"
+        #    )
+
+    def prepare_image(
+        self,
+        image,
+        width,
+        height,
+        batch_size,
+        video_length,
+        device,
+        dtype,
+        do_classifier_free_guidance=False,
+        guess_mode=False,
+    ):
+
+        images = []
+        for image_ in image:
+            pil_image = PIL.Image.fromarray(image_.cpu().detach().numpy())
+            processed_image = self.control_image_processor.preprocess(pil_image, height=height, width=width).to(dtype=torch.float32)
+            numpy_image = np.array(processed_image)
+            tensor_image = torch.tensor(numpy_image).squeeze(0)
+            images.append(tensor_image)
+
+        image = torch.stack(images)
+        image = image.squeeze(0)
+
+        image = image.to(device=device, dtype=dtype)
+
+        if do_classifier_free_guidance and not guess_mode:
+            image = torch.cat([image] * 2)
+
+        return image
+
+
     def prepare_latents(self, batch_size, num_channels_latents, video_length, height, width, dtype, device, generator, latents=None):
         shape = (batch_size, num_channels_latents, video_length, height // self.vae_scale_factor, width // self.vae_scale_factor)
+
+        init_latents = None
+
+
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
                 f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
@@ -296,6 +584,7 @@ class AnimationPipeline(DiffusionPipeline):
             if isinstance(generator, list):
                 shape = shape
                 # shape = (1,) + shape[1:]
+                # ignore init latents for batch model
                 latents = [
                     torch.randn(shape, generator=generator[i], device=rand_device, dtype=dtype)
                     for i in range(batch_size)
@@ -303,13 +592,21 @@ class AnimationPipeline(DiffusionPipeline):
                 latents = torch.cat(latents, dim=0).to(device)
             else:
                 latents = torch.randn(shape, generator=generator, device=rand_device, dtype=dtype).to(device)
+                if init_latents is not None:
+                    for i in range(video_length):
+                        # I just feel dividing by 30 yield stable result but I don't know why
+                        # gradully reduce init alpha along video frames (loosen restriction)
+                        init_alpha = (video_length - float(i)) / video_length / 30
+                        latents[:, :, i, :, :] = init_latents * init_alpha + latents[:, :, i, :, :] * (1 - init_alpha)
         else:
             if latents.shape != shape:
                 raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
-            latents = latents.to(device)
+
+        latents = latents.to(device)
 
         # scale the initial noise by the standard deviation required by the scheduler
-        latents = latents * self.scheduler.init_noise_sigma
+        if init_latents is None:
+            latents = latents * self.scheduler.init_noise_sigma.to(device)
         return latents
 
     @torch.no_grad()
@@ -317,6 +614,17 @@ class AnimationPipeline(DiffusionPipeline):
         self,
         prompt: Union[str, List[str]],
         video_length: Optional[int],
+        image: Union[
+            torch.FloatTensor,
+            PIL.Image.Image,
+            np.ndarray,
+            List[torch.FloatTensor],
+            List[PIL.Image.Image],
+            List[np.ndarray],
+        ] = None,
+        temporal_context: Optional[int] = None,
+        strides: int = 3,
+        overlap: int = 4,
         height: Optional[int] = None,
         width: Optional[int] = None,
         num_inference_steps: int = 50,
@@ -330,14 +638,49 @@ class AnimationPipeline(DiffusionPipeline):
         return_dict: bool = True,
         callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
         callback_steps: Optional[int] = 1,
+        seq_policy=overlap_policy.uniform,
+        fp16=False,
+        compel=False,
+        controlnet_conditioning_scale: Union[float, List[float]] = 1.0,
+        guess_mode: bool = False,
+        control_guidance_start: Union[float, List[float]] = 0.0,
+        control_guidance_end: Union[float, List[float]] = 1.0,
+        cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+
         **kwargs,
     ):
+        if self.controlnet:
+            controlnet = self.controlnet._orig_mod if is_compiled_module(self.controlnet) else self.controlnet
+
+            # align format for control guidance
+            if not isinstance(control_guidance_start, list) and isinstance(control_guidance_end, list):
+                control_guidance_start = len(control_guidance_end) * [control_guidance_start]
+            elif not isinstance(control_guidance_end, list) and isinstance(control_guidance_start, list):
+                control_guidance_end = len(control_guidance_start) * [control_guidance_end]
+            elif not isinstance(control_guidance_start, list) and not isinstance(control_guidance_end, list):
+                mult = len(controlnet.nets) if isinstance(controlnet, MultiControlNetModel) else 1
+                control_guidance_start, control_guidance_end = mult * [control_guidance_start], mult * [
+                    control_guidance_end
+                ]
+
+
         # Default height and width to unet
         height = height or self.unet.config.sample_size * self.vae_scale_factor
         width = width or self.unet.config.sample_size * self.vae_scale_factor
 
         # Check inputs. Raise error if not correct
         self.check_inputs(prompt, height, width, callback_steps)
+
+        if self.controlnet != None:
+            self.check_cnet_inputs(
+                prompt,
+                image,
+                callback_steps,
+                negative_prompt,
+                controlnet_conditioning_scale,
+                control_guidance_start,
+                control_guidance_end,
+            )
 
         # Define call parameters
         # batch_size = 1 if isinstance(prompt, str) else len(prompt)
@@ -348,18 +691,100 @@ class AnimationPipeline(DiffusionPipeline):
             batch_size = len(prompt)
 
         device = self._execution_device
+        cpu = torch.device('cpu')
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
         # corresponds to doing no classifier free guidance.
         do_classifier_free_guidance = guidance_scale > 1.0
 
+        if self.controlnet != None:
+            if isinstance(controlnet, MultiControlNetModel) and isinstance(controlnet_conditioning_scale, float):
+                controlnet_conditioning_scale = [controlnet_conditioning_scale] * len(controlnet.nets)
+
+
+            global_pool_conditions = (
+                controlnet.config.global_pool_conditions
+                if isinstance(controlnet, ControlNetModel)
+                else controlnet.nets[0].config.global_pool_conditions
+            )
+            guess_mode = guess_mode or global_pool_conditions
+
         # Encode input prompt
         prompt = prompt if isinstance(prompt, list) else [prompt] * batch_size
         if negative_prompt is not None:
-            negative_prompt = negative_prompt if isinstance(negative_prompt, list) else [negative_prompt] * batch_size 
-        text_embeddings = self._encode_prompt(
-            prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt
+            negative_prompt = negative_prompt if isinstance(negative_prompt, list) else [negative_prompt] * batch_size
+
+
+        parted_text_embeddings = [None] * video_length
+
+        text_encoder_lora_scale = (
+            cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
         )
+
+        if isinstance(prompt[0], dict):
+          for start_frame in prompt[0]:
+            part_prompt = prompt[0][start_frame]
+            embeddings = self._encode_prompt(
+                compel,
+                [part_prompt], device, num_videos_per_prompt,
+                do_classifier_free_guidance, negative_prompt,
+                lora_scale=text_encoder_lora_scale,
+            )
+            parted_text_embeddings[int(start_frame)] = embeddings
+        else:
+          text_embeddings = self._encode_prompt(
+              compel,
+              prompt, device, num_videos_per_prompt,
+              do_classifier_free_guidance, negative_prompt,
+                lora_scale=text_encoder_lora_scale,
+          )
+          parted_text_embeddings[0] = text_embeddings
+
+        final_text_embeddings = []
+        last_embeddings = None
+        for embeddings in parted_text_embeddings:
+          if embeddings != None:
+            last_embeddings = embeddings
+          else:
+            embeddings = last_embeddings
+
+          final_text_embeddings.append(embeddings)
+
+        if self.controlnet != None:
+            # 4. Prepare image
+            if isinstance(controlnet, ControlNetModel):
+                image = self.prepare_image(
+                    image=image,
+                    width=width,
+                    height=height,
+                    batch_size=batch_size,
+                    video_length=video_length,
+                    device=device,
+                    dtype=controlnet.dtype,
+                    do_classifier_free_guidance=do_classifier_free_guidance,
+                    guess_mode=guess_mode,
+                )
+            elif isinstance(controlnet, MultiControlNetModel):
+                images = []
+
+                for image_ in image:
+                    image_ = self.prepare_image(
+                        image=image_,
+                        width=width,
+                        height=height,
+                        batch_size=batch_size,
+                        video_length=video_length,
+                        device=device,
+                        dtype=controlnet.dtype,
+                        do_classifier_free_guidance=do_classifier_free_guidance,
+                        guess_mode=guess_mode,
+                    )
+
+                    images.append(image_)
+
+                image = images
+            else:
+                assert False
 
         # Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=device)
@@ -373,37 +798,120 @@ class AnimationPipeline(DiffusionPipeline):
             video_length,
             height,
             width,
-            text_embeddings.dtype,
-            device,
+            torch.float32,
+            cpu,  # using cpu to store latents allows generated frame amount not to be limited by vram but by ram
             generator,
             latents,
         )
         latents_dtype = latents.dtype
 
+        latents = latents.to(device)
+
         # Prepare extra step kwargs.
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
+        total = sum(
+            len(list(seq_policy(i, num_inference_steps, latents.shape[2], temporal_context, strides, overlap)))
+            for i in range(len(timesteps))
+        )
+
+        if self.controlnet != None:
+            # 7.1 Create tensor stating which controlnets to keep
+            controlnet_keep = []
+            for i in range(len(timesteps)):
+                keeps = [
+                    1.0 - float(i / len(timesteps) < s or (i + 1) / len(timesteps) > e)
+                    for s, e in zip(control_guidance_start, control_guidance_end)
+                ]
+                controlnet_keep.append(keeps[0] if isinstance(controlnet, ControlNetModel) else keeps)
+
+            self.controlnet.to(device, dtype=latents.dtype)
+
 
         # Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
-        with self.progress_bar(total=num_inference_steps) as progress_bar:
+        with self.progress_bar(total=total) as progress_bar:
             for i, t in enumerate(timesteps):
-                # expand the latents if we are doing classifier free guidance
-                latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+                noise_pred = torch.zeros((latents.shape[0] * (2 if do_classifier_free_guidance else 1),
+                                          *latents.shape[1:]), device=latents.device, dtype=latents_dtype)
+                counter = torch.zeros((1, 1, latents.shape[2], 1, 1), device=latents.device, dtype=latents_dtype)
+                for seq in seq_policy(i, num_inference_steps, latents.shape[2], temporal_context, strides, overlap):
+                    # expand the latents if we are doing classifier free guidance
+                    latent_model_input = latents[:, :, seq].to(device)\
+                        .repeat(2 if do_classifier_free_guidance else 1, 1, 1, 1, 1)
+                    latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-                # predict the noise residual
-                noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample.to(dtype=latents_dtype)
-                # noise_pred = []
-                # import pdb
-                # pdb.set_trace()
-                # for batch_idx in range(latent_model_input.shape[0]):
-                #     noise_pred_single = self.unet(latent_model_input[batch_idx:batch_idx+1], t, encoder_hidden_states=text_embeddings[batch_idx:batch_idx+1]).sample.to(dtype=latents_dtype)
-                #     noise_pred.append(noise_pred_single)
-                # noise_pred = torch.cat(noise_pred)
+                    multi_text_embeddings = [final_text_embeddings[i] for i in seq]
+                    multi_text_embeddings = torch.stack(multi_text_embeddings).to(device)
+                    multi_text_embeddings = rearrange(multi_text_embeddings, 'f b n c -> (b f) n c')
+
+                    #multi_text_embeddings = repeat(text_embeddings, 'b n c -> (b f) n c', f=temporal_context)
+
+                    down_block_res_samples = None
+                    mid_block_res_sample = None
+
+                    if self.controlnet != None:
+                        # controlnet(s) inference
+                        if guess_mode and do_classifier_free_guidance:
+                            # Infer ControlNet only for the conditional batch.
+                            control_model_input = latents
+                            control_model_input = self.scheduler.scale_model_input(control_model_input, t)
+                        else:
+                            control_model_input = latent_model_input
+
+                        if isinstance(controlnet_keep[i], list):
+                            cond_scale = [c * s for c, s in zip(controlnet_conditioning_scale, controlnet_keep[i])]
+                        else:
+                            controlnet_cond_scale = controlnet_conditioning_scale
+                            if isinstance(controlnet_cond_scale, list):
+                                controlnet_cond_scale = controlnet_cond_scale[0]
+                            cond_scale = controlnet_cond_scale * controlnet_keep[i]
+
+                        control_model_input = rearrange(control_model_input, "b c f h w -> (b f) c h w")
+                        down_block_res_samples, mid_block_res_sample = self.controlnet(
+                            control_model_input,
+                            t,
+                            encoder_hidden_states=multi_text_embeddings,
+                            controlnet_cond=image,
+                            conditioning_scale=cond_scale,
+                            guess_mode=guess_mode,
+                            return_dict=False,
+                        )
+
+                        for i in range(len(down_block_res_samples)):
+                            down_block_res_samples[i] = rearrange(
+                                    down_block_res_samples[i],
+                                    '(b f) c h w -> b c f h w',
+                                    f=video_length)
+
+                        mid_block_res_sample = rearrange(
+                                mid_block_res_sample,
+                                '(b f) c h w -> b c f h w',
+                                f=video_length)
+
+                        if guess_mode and do_classifier_free_guidance:
+                            # Infered ControlNet only for the conditional batch.
+                            # To apply the output of ControlNet to both the unconditional and conditional batches,
+                            # add 0 to the unconditional batch to keep it unchanged.
+                            down_block_res_samples = [torch.cat([torch.zeros_like(d), d]) for d in down_block_res_samples]
+                            mid_block_res_sample = torch.cat([torch.zeros_like(mid_block_res_sample), mid_block_res_sample])
+
+
+                    # predict the noise residual
+                    with torch.autocast('cuda', enabled=fp16, dtype=torch.float16):
+                        pred = self.unet(latent_model_input,
+                                         t,
+                                         cross_attention_kwargs=cross_attention_kwargs,
+                                         down_block_additional_residuals=down_block_res_samples,
+                                         mid_block_additional_residual=mid_block_res_sample,
+                                         encoder_hidden_states=multi_text_embeddings)
+
+                    noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device='cuda')
+                    counter[:, :, seq] += 1
+                    progress_bar.update()
 
                 # perform guidance
                 if do_classifier_free_guidance:
-                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                    noise_pred_uncond, noise_pred_text = (noise_pred / counter).chunk(2)
                     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
                 # compute the previous noisy sample x_t -> x_t-1
@@ -411,7 +919,6 @@ class AnimationPipeline(DiffusionPipeline):
 
                 # call the callback, if provided
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
-                    progress_bar.update()
                     if callback is not None and i % callback_steps == 0:
                         callback(i, t, latents)
 

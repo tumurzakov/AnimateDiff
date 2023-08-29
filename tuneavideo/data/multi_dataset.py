@@ -1,6 +1,7 @@
 import decord
 decord.bridge.set_bridge('torch')
 
+from typing import Callable, List, Optional, Union
 from torch.utils.data import Dataset
 from einops import rearrange
 
@@ -8,17 +9,17 @@ from einops import rearrange
 class MultiTuneAVideoDataset(Dataset):
     def __init__(
             self,
-            video_path: list[str],
-            prompt: list[str],
+            video_path: Union[str, list[str]],
+            prompt: Union[str, list[str]],
             width: int = 512,
             height: int = 512,
             n_sample_frames: int = 8,
             sample_start_idx: int = 0,
             sample_frame_rate: int = 1,
     ):
-        self.video_path = video_path
-        self.prompt = prompt
-        self.prompt_ids = None
+        self.video_path = [video_path] if isinstance(video_path, str) else video_path
+        self.prompt = [prompt] * len(self.video_path) if isinstance(prompt, str) else prompt
+        self.prompt_ids = []
 
         self.width = width
         self.height = height
@@ -38,7 +39,7 @@ class MultiTuneAVideoDataset(Dataset):
 
         example = {
             "pixel_values": (video / 127.5 - 1.0),
-            "prompt_ids": self.prompt_ids
+            "prompt_ids": self.prompt_ids[index]
         }
 
         return example

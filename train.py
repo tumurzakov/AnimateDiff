@@ -25,10 +25,11 @@ from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 
 from animatediff.models.unet import UNet3DConditionModel
-from tuneavideo.data.dataset import TuneAVideoDataset
+from tuneavideo.data.frames_dataset import FramesDataset
+from tuneavideo.data.multi_dataset import MultiTuneAVideoDataset
 from animatediff.pipelines.pipeline_animation import AnimationPipeline
 from tuneavideo.util import save_videos_grid, ddim_inversion
-from einops import rearrange
+from einops import rearrange, repeat
 
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
@@ -43,6 +44,7 @@ def main(
     train_data: Dict,
     validation_data: Dict,
     validation_steps: int = 100,
+    train_whole_module: bool = False,
     trainable_modules: Tuple[str] = (
         "to_q",
     ),
@@ -60,6 +62,7 @@ def main(
     gradient_accumulation_steps: int = 1,
     gradient_checkpointing: bool = True,
     checkpointing_steps: int = 500,
+    start_global_step: int = 0,
     resume_from_checkpoint: Optional[str] = None,
     mixed_precision: Optional[str] = "fp16",
     use_8bit_adam: bool = False,
@@ -68,6 +71,8 @@ def main(
 
     motion_module: str = "models/Motion_Module/mm_sd_v15.ckpt",
     inference_config_path: str = "configs/inference/inference.yaml",
+    motion_module_pe_multiplier: int = 1,
+    dataset_class: str = 'MultiTuneAVideoDataset',
 ):
     *_, config = inspect.getargvalues(inspect.currentframe())
 
@@ -110,9 +115,20 @@ def main(
     tokenizer = CLIPTokenizer.from_pretrained(pretrained_model_path, subfolder="tokenizer")
     text_encoder = CLIPTextModel.from_pretrained(pretrained_model_path, subfolder="text_encoder")
     vae = AutoencoderKL.from_pretrained(pretrained_model_path, subfolder="vae")
-    unet = UNet3DConditionModel.from_pretrained_2d(pretrained_model_path, subfolder="unet", unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs))
+    unet = UNet3DConditionModel.from_pretrained_2d(pretrained_model_path,
+                                                   subfolder="unet",
+                                                   unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs))
 
     motion_module_state_dict = torch.load(motion_module, map_location="cpu")
+
+    # Multiply pe weights by multiplier for training more than 24 frames
+    if motion_module_pe_multiplier > 1:
+        for key in motion_module_state_dict:
+          if 'pe' in key:
+            t = motion_module_state_dict[key]
+            t = repeat(t, "b f d -> b (f m) d", m=motion_module_pe_multiplier)
+            motion_module_state_dict[key] = t
+
     if "global_step" in motion_module_state_dict: func_args.update({"global_step": motion_module_state_dict["global_step"]})
     missing, unexpected = unet.load_state_dict(motion_module_state_dict, strict=False)
     assert len(unexpected) == 0
@@ -123,7 +139,7 @@ def main(
 
     unet.requires_grad_(False)
     for name, module in unet.named_modules():
-        if "motion_modules" in name and name.endswith(tuple(trainable_modules)):
+        if "motion_modules" in name and (train_whole_module or name.endswith(tuple(trainable_modules))):
             for params in module.parameters():
                 params.requires_grad = True
 
@@ -163,12 +179,19 @@ def main(
     )
 
     # Get the training dataset
-    train_dataset = TuneAVideoDataset(**train_data)
+    train_dataset = None
+    if dataset_class == 'MultiTuneAVideoDataset':
+        train_dataset = MultiTuneAVideoDataset(**train_data)
 
-    # Preprocessing the dataset
-    train_dataset.prompt_ids = tokenizer(
-        train_dataset.prompt, max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
-    ).input_ids[0]
+        # Preprocessing the dataset
+        train_dataset.prompt_ids = [None] * len(train_dataset.prompt)
+        for index, prompt in enumerate(train_dataset.prompt):
+            train_dataset.prompt_ids[index] = tokenizer(
+                prompt,max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
+            ).input_ids[0]
+    else:
+        train_dataset = FramesDataset(tokenizer=tokenizer, **train_data)
+        train_dataset.load()
 
     # DataLoaders creation:
     train_dataloader = torch.utils.data.DataLoader(
@@ -178,7 +201,7 @@ def main(
     # Get the validation pipeline
     validation_pipeline = AnimationPipeline(
         vae=vae, text_encoder=text_encoder, tokenizer=tokenizer, unet=unet,
-        scheduler=DDIMScheduler(**OmegaConf.to_container(inference_config.noise_scheduler_kwargs)),
+        scheduler=DDIMScheduler(**OmegaConf.to_container(inference_config.noise_scheduler_kwargs['DDIMScheduler'])),
     )
     validation_pipeline.enable_vae_slicing()
     ddim_inv_scheduler = DDIMScheduler.from_pretrained(pretrained_model_path, subfolder='scheduler')
@@ -231,6 +254,11 @@ def main(
     logger.info(f"  Total optimization steps = {max_train_steps}")
     global_step = 0
     first_epoch = 0
+
+    if start_global_step > 0:
+        global_step = start_global_step
+        first_epoch = global_step // num_update_steps_per_epoch
+        resume_step = global_step % num_update_steps_per_epoch
 
     # Potentially load in the weights and states from a previous save
     if resume_from_checkpoint:
@@ -337,8 +365,10 @@ def main(
                                 num_inv_steps=validation_data.num_inv_steps, prompt="")[-1].to(weight_dtype)
                             torch.save(ddim_inv_latent, inv_latents_path)
 
-                        for idx, prompt in enumerate(validation_data.prompts):
-                            sample = validation_pipeline(prompt, generator=generator, latents=ddim_inv_latent,
+                        for idx, prompt in enumerate(set(validation_data.prompts)):
+                            sample = validation_pipeline(prompt, generator=generator,
+                                                         latents=ddim_inv_latent,
+                                                         fp16=True,
                                                          **validation_data).videos
                             save_videos_grid(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
                             samples.append(sample)
