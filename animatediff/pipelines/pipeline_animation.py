@@ -957,13 +957,14 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                                 embeddings = torch.stack(layer_embeddings).to(device)
                                 embeddings = rearrange(embeddings, 'f b n c -> (b f) n c')
                                 masked_embeddings.append(embeddings)
+
+                            masks = torch.tensor(masks).to(device)
                         else:
                             embeddings = torch.stack(multi_text_embeddings).to(device)
                             embeddings = rearrange(embeddings, 'f b n c -> (b f) n c')
                             masked_embeddings = [embeddings]
-                            masks = [torch.ones_like(latent_model_input)]
+                            masks = torch.stack([torch.ones_like(latent_model_input)])
 
-                        masks = torch.tensor(masks).to(device)
 
                         preds = []
                         for embeddings in masked_embeddings:
