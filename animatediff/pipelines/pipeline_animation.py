@@ -45,6 +45,24 @@ import torch.nn.functional as F
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
+class MaskedPrompt:
+    """
+    prompt = MultiPrompt()
+    prompt.addDefault("prompt")
+    prompt.addMask(mask, "prompt")
+    """
+
+    self.masks = []
+
+    def addDefault(self, prompt):
+        self.default = prompt
+
+    def addMask(mask, prompt):
+        self.masks.append({'mask': mask, 'prompt': prompt})
+
+class MaskedPromptProcessor:
+    pass
+
 
 @dataclass
 class AnimationPipelineOutput(BaseOutput):
@@ -609,6 +627,75 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
             latents = latents * torch.tensor(self.scheduler.init_noise_sigma).to(device)
         return latents
 
+    def calc_cnet_residuals(
+            self,
+            t,
+            multi_text_embeddings,
+            image,
+            latents,
+            controlnet_keep,
+            controlnet_conditioning_scale,
+            guess_mode,
+            do_classifier_free_guidance):
+
+        down_block_res_samples = None
+        mid_block_res_sample = None
+
+        # controlnet(s) inference
+        if guess_mode and do_classifier_free_guidance:
+            # Infer ControlNet only for the conditional batch.
+            control_model_input = latents
+            control_model_input = self.scheduler.scale_model_input(control_model_input, t)
+        else:
+            control_model_input = latent_model_input
+
+        if isinstance(controlnet_keep[i], list):
+            cond_scale = [c * s for c, s in zip(controlnet_conditioning_scale, controlnet_keep[i])]
+        else:
+            controlnet_cond_scale = controlnet_conditioning_scale
+            if isinstance(controlnet_cond_scale, list):
+                controlnet_cond_scale = controlnet_cond_scale[0]
+            cond_scale = controlnet_cond_scale * controlnet_keep[i]
+
+        controlnet_image = []
+        for img in image:
+          cnet_image = img[seq]
+          if do_classifier_free_guidance and not guess_mode:
+            cnet_image = torch.cat([cnet_image]*2)
+          controlnet_image.append(cnet_image)
+
+        control_model_input = rearrange(control_model_input, "b c f h w -> (b f) c h w")
+        down_block_res_samples, mid_block_res_sample = self.controlnet(
+            control_model_input,
+            t,
+            encoder_hidden_states=multi_text_embeddings,
+            controlnet_cond=controlnet_image,
+            conditioning_scale=cond_scale,
+            guess_mode=guess_mode,
+            return_dict=False,
+        )
+
+        for i in range(len(down_block_res_samples)):
+            down_block_res_samples[i] = rearrange(
+                    down_block_res_samples[i],
+                    '(b f) c h w -> b c f h w',
+                    f=temporal_context)
+
+        mid_block_res_sample = rearrange(
+                mid_block_res_sample,
+                '(b f) c h w -> b c f h w',
+                f=temporal_context)
+
+        if guess_mode and do_classifier_free_guidance:
+            # Infered ControlNet only for the conditional batch.
+            # To apply the output of ControlNet to both the unconditional and conditional batches,
+            # add 0 to the unconditional batch to keep it unchanged.
+            down_block_res_samples = [torch.cat([torch.zeros_like(d), d]) for d in down_block_res_samples]
+            mid_block_res_sample = torch.cat([torch.zeros_like(mid_block_res_sample), mid_block_res_sample])
+
+        return down_block_res_samples, mid_block_res_sample
+
+
     @torch.no_grad()
     def __call__(
         self,
@@ -724,13 +811,24 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
         if isinstance(prompt[0], dict):
           for start_frame in prompt[0]:
             part_prompt = prompt[0][start_frame]
-            embeddings = self._encode_prompt(
-                compel,
-                [part_prompt], device, num_videos_per_prompt,
-                do_classifier_free_guidance, negative_prompt,
-                lora_scale=text_encoder_lora_scale,
-            )
-            parted_text_embeddings[int(start_frame)] = embeddings
+            if isinstance(part_prompt, MaskedPrompt):
+                for masked_part_prompt in part_prompt.prompts:
+                    masked_embeddings = self._encode_prompt(
+                        compel,
+                        [masked_part_prompt], device, num_videos_per_prompt,
+                        do_classifier_free_guidance, negative_prompt,
+                        lora_scale=text_encoder_lora_scale,
+                    )
+                    masked_part_prompt['embeddings'] = masked_embeddings
+                    parted_text_embeddings[int(start_frame)] = part_prompt
+            else:
+                embeddings = self._encode_prompt(
+                    compel,
+                    [part_prompt], device, num_videos_per_prompt,
+                    do_classifier_free_guidance, negative_prompt,
+                    lora_scale=text_encoder_lora_scale,
+                )
+                parted_text_embeddings[int(start_frame)] = embeddings
         else:
           text_embeddings = self._encode_prompt(
               compel,
@@ -841,78 +939,59 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                     latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
                     multi_text_embeddings = [final_text_embeddings[i] for i in seq]
-                    multi_text_embeddings = torch.stack(multi_text_embeddings).to(device)
-                    multi_text_embeddings = rearrange(multi_text_embeddings, 'f b n c -> (b f) n c')
-
-                    #multi_text_embeddings = repeat(text_embeddings, 'b n c -> (b f) n c', f=temporal_context)
+                    masks = [[]] * video_length
 
                     down_block_res_samples = None
                     mid_block_res_sample = None
 
-                    if self.controlnet != None:
-                        # controlnet(s) inference
-                        if guess_mode and do_classifier_free_guidance:
-                            # Infer ControlNet only for the conditional batch.
-                            control_model_input = latents
-                            control_model_input = self.scheduler.scale_model_input(control_model_input, t)
-                        else:
-                            control_model_input = latent_model_input
-
-                        if isinstance(controlnet_keep[i], list):
-                            cond_scale = [c * s for c, s in zip(controlnet_conditioning_scale, controlnet_keep[i])]
-                        else:
-                            controlnet_cond_scale = controlnet_conditioning_scale
-                            if isinstance(controlnet_cond_scale, list):
-                                controlnet_cond_scale = controlnet_cond_scale[0]
-                            cond_scale = controlnet_cond_scale * controlnet_keep[i]
-
-                        controlnet_image = []
-                        for img in image:
-                          cnet_image = img[seq]
-                          if do_classifier_free_guidance and not guess_mode:
-                            cnet_image = torch.cat([cnet_image]*2)
-                          controlnet_image.append(cnet_image)
-
-                        control_model_input = rearrange(control_model_input, "b c f h w -> (b f) c h w")
-                        down_block_res_samples, mid_block_res_sample = self.controlnet(
-                            control_model_input,
-                            t,
-                            encoder_hidden_states=multi_text_embeddings,
-                            controlnet_cond=controlnet_image,
-                            conditioning_scale=cond_scale,
-                            guess_mode=guess_mode,
-                            return_dict=False,
-                        )
-
-                        for i in range(len(down_block_res_samples)):
-                            down_block_res_samples[i] = rearrange(
-                                    down_block_res_samples[i],
-                                    '(b f) c h w -> b c f h w',
-                                    f=temporal_context)
-
-                        mid_block_res_sample = rearrange(
-                                mid_block_res_sample,
-                                '(b f) c h w -> b c f h w',
-                                f=temporal_context)
-
-                        if guess_mode and do_classifier_free_guidance:
-                            # Infered ControlNet only for the conditional batch.
-                            # To apply the output of ControlNet to both the unconditional and conditional batches,
-                            # add 0 to the unconditional batch to keep it unchanged.
-                            down_block_res_samples = [torch.cat([torch.zeros_like(d), d]) for d in down_block_res_samples]
-                            mid_block_res_sample = torch.cat([torch.zeros_like(mid_block_res_sample), mid_block_res_sample])
-
-
-                    # predict the noise residual
                     with torch.autocast('cuda', enabled=fp16, dtype=torch.float16):
-                        pred = self.unet(latent_model_input,
-                                         t,
-                                         cross_attention_kwargs=cross_attention_kwargs,
-                                         down_block_additional_residuals=down_block_res_samples,
-                                         mid_block_additional_residual=mid_block_res_sample,
-                                         encoder_hidden_states=multi_text_embeddings)
 
-                    noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device='cuda')
+                        if isinstance(multi_text_embeddings[0], MaskedPrompt):
+                            masked_embeddings = []
+                            masked_embeddings_layer = [[]]*len(multi_text_embeddings[0].prompts),
+                            for frame_masked_prompt in multi_text_embeddings:
+                                for layer_idx, prompt in enumerate(frame_masked_prompt.prompts):
+                                    masked_embeddings_layer[layer_idx].append(prompt['embeddings'])
+                                    masks[seq[0] + layer_idx].append(prompt['mask'])
+
+                            for layer_embeddings in masked_embeddings_layer:
+                                embeddings = torch.stack(layer_embeddings).to(device)
+                                embeddings = rearrange(embeddings, 'f b n c -> (b f) n c')
+                                masked_embeddings.append(embeddings)
+                        else:
+                            embeddings = torch.stack(multi_text_embeddings).to(device)
+                            embeddings = rearrange(embeddings, 'f b n c -> (b f) n c')
+                            masked_embeddings = [embeddings]
+                            masks[seq].append(1)
+
+                        masks = torch.tensor(masks).to(device)
+
+                        preds = []
+                        for embeddings in masked_embeddings:
+                            if self.controlnet != None:
+                                down_block_res_samples, mid_block_res_sample = self.calc_cnet_residuals(
+                                    t,
+                                    embeddings,
+                                    image,
+                                    latents,
+                                    controlnet_keep,
+                                    controlnet_conditioning_scale,
+                                    guess_mode,
+                                    do_classifier_free_guidance)
+
+                            # predict the noise residual
+                            pred = self.unet(latent_model_input,
+                                             t,
+                                             cross_attention_kwargs=cross_attention_kwargs,
+                                             down_block_additional_residuals=down_block_res_samples,
+                                             mid_block_additional_residual=mid_block_res_sample,
+                                             encoder_hidden_states=embeddings)
+
+                            preds.append(pred)
+
+                    for i, pred in enumerate(preds):
+                        noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device=device) * masks[seq, i]
+
                     counter[:, :, seq] += 1
                     progress_bar.update()
 
