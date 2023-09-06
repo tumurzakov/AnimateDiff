@@ -954,7 +954,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                             for frame_masked_prompt in multi_text_embeddings:
                                 for layer_idx, prompt in enumerate(frame_masked_prompt.prompts):
                                     masked_embeddings_layer[layer_idx].append(prompt['embeddings'])
-                                    masks[seq[0] + layer_idx].append(prompt['mask'])
+                                    masks_list[seq[0] + layer_idx].append(prompt['mask'])
 
                             for layer_embeddings in masked_embeddings_layer:
                                 embeddings = torch.stack(layer_embeddings).to(device)
