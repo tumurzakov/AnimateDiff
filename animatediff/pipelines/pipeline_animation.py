@@ -631,7 +631,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
             t,
             multi_text_embeddings,
             image,
-            latents,
+            latent_model_input,
             controlnet_keep,
             controlnet_conditioning_scale,
             guess_mode,
@@ -643,7 +643,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
         # controlnet(s) inference
         if guess_mode and do_classifier_free_guidance:
             # Infer ControlNet only for the conditional batch.
-            control_model_input = latents
+            control_model_input = latent_model_input
             control_model_input = self.scheduler.scale_model_input(control_model_input, t)
         else:
             control_model_input = latent_model_input
@@ -973,7 +973,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                                     t,
                                     embeddings,
                                     image,
-                                    latents,
+                                    latent_model_input,
                                     controlnet_keep,
                                     controlnet_conditioning_scale,
                                     guess_mode,
