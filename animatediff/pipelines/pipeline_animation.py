@@ -51,8 +51,8 @@ class MaskedPrompt:
     prompt.addMask(mask, "prompt")
     """
 
-    def __init__(self, prompt, height, width):
-        mask = torch.ones((height, width))
+    def __init__(self, prompt, width, height):
+        mask = torch.ones((height//8, width//8))
         self.prompts = [{'mask': mask, 'prompt': prompt}]
 
     def addMask(mask, prompt):
@@ -941,14 +941,14 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                     latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
                     multi_text_embeddings = [final_text_embeddings[i] for i in seq]
-                    masks = [[]] * temporal_context
-
                     down_block_res_samples = None
                     mid_block_res_sample = None
+                    masks = None
 
                     with torch.autocast('cuda', enabled=fp16, dtype=torch.float16):
 
                         if isinstance(multi_text_embeddings[0], MaskedPrompt):
+                            masks_list = [[]] * temporal_context
                             masked_embeddings = []
                             masked_embeddings_layer = [[]]*temporal_context
                             for frame_masked_prompt in multi_text_embeddings:
@@ -961,7 +961,11 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                                 embeddings = rearrange(embeddings, 'f b n c -> (b f) n c')
                                 masked_embeddings.append(embeddings)
 
-                            masks = torch.tensor(masks).to(device)
+                            masks_tensor_list = []
+                            for m in masks_list:
+                                masks_tensor_list.append(torch.stack(masks_list[m]))
+
+                            masks = torch.stack(masks_tensor_list).to(device)
                         else:
                             embeddings = torch.stack(multi_text_embeddings).to(device)
                             embeddings = rearrange(embeddings, 'f b n c -> (b f) n c')
