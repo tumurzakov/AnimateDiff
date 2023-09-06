@@ -630,6 +630,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
             self,
             i,
             t,
+            seq,
             multi_text_embeddings,
             image,
             latent_model_input,
@@ -974,6 +975,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                                 down_block_res_samples, mid_block_res_sample = self.calc_cnet_residuals(
                                     i,
                                     t,
+                                    seq,
                                     embeddings,
                                     image,
                                     latent_model_input,
