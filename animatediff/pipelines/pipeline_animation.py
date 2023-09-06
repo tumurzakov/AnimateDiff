@@ -962,7 +962,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                             embeddings = rearrange(embeddings, 'f b n c -> (b f) n c')
                             masked_embeddings = [embeddings]
                             for i in seq:
-                                masks[i].append(1)
+                                masks[i].append(torch.ones_like(latent_model_input))
 
                         masks = torch.tensor(masks).to(device)
 
@@ -990,7 +990,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                             preds.append(pred)
 
                     for i, pred in enumerate(preds):
-                        noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device=device) #* masks[seq, i]
+                        noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device=device) * masks[seq, i]
 
                     counter[:, :, seq] += 1
                     progress_bar.update()
