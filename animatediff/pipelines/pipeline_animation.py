@@ -938,7 +938,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                     latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
                     multi_text_embeddings = [final_text_embeddings[i] for i in seq]
-                    masks = [[]] * video_length
+                    masks = [[]] * temporal_context
 
                     down_block_res_samples = None
                     mid_block_res_sample = None
@@ -947,7 +947,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
 
                         if isinstance(multi_text_embeddings[0], MaskedPrompt):
                             masked_embeddings = []
-                            masked_embeddings_layer = [[]]*len(multi_text_embeddings[0].prompts),
+                            masked_embeddings_layer = [[]]*temporal_context
                             for frame_masked_prompt in multi_text_embeddings:
                                 for layer_idx, prompt in enumerate(frame_masked_prompt.prompts):
                                     masked_embeddings_layer[layer_idx].append(prompt['embeddings'])
@@ -961,8 +961,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                             embeddings = torch.stack(multi_text_embeddings).to(device)
                             embeddings = rearrange(embeddings, 'f b n c -> (b f) n c')
                             masked_embeddings = [embeddings]
-                            for i in seq:
-                                masks[i].append(torch.ones_like(latent_model_input))
+                            masks = [torch.ones_like(latent_model_input)]
 
                         masks = torch.tensor(masks).to(device)
 
@@ -990,7 +989,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                             preds.append(pred)
 
                     for i, pred in enumerate(preds):
-                        noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device=device) * masks[seq, i]
+                        noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device=device) * masks[i]
 
                     counter[:, :, seq] += 1
                     progress_bar.update()
