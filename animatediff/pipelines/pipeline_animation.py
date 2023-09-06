@@ -47,18 +47,17 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 class MaskedPrompt:
     """
-    prompt = MultiPrompt()
-    prompt.addDefault("prompt")
+    prompt = MultiPrompt(prompt, height, width)
     prompt.addMask(mask, "prompt")
     """
 
-    self.masks = []
-
-    def addDefault(self, prompt):
-        self.default = prompt
+    def __init__(self, prompt, height, width):
+        mask = torch.ones((height, width))
+        self.prompts = [{'mask': mask, 'prompt': prompt}]
 
     def addMask(mask, prompt):
-        self.masks.append({'mask': mask, 'prompt': prompt})
+        self.prompts[0]['mask'] = torch.clamp(self.prompts[0]['mask'] - mask, 0, 1)
+        self.prompts.append({'mask': mask, 'prompt': prompt})
 
 class MaskedPromptProcessor:
     pass
