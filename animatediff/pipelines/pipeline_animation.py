@@ -628,6 +628,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
 
     def calc_cnet_residuals(
             self,
+            i,
             t,
             multi_text_embeddings,
             image,
@@ -971,6 +972,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                         for embeddings in masked_embeddings:
                             if self.controlnet != None:
                                 down_block_res_samples, mid_block_res_sample = self.calc_cnet_residuals(
+                                    i,
                                     t,
                                     embeddings,
                                     image,
@@ -991,8 +993,8 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
 
                             preds.append(pred)
 
-                    for i, pred in enumerate(preds):
-                        noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device=device) * masks[i]
+                    for pred_idx, pred in enumerate(preds):
+                        noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device=device) * masks[pred_idx]
 
                     counter[:, :, seq] += 1
                     progress_bar.update()
