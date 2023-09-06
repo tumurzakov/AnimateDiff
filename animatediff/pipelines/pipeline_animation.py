@@ -963,7 +963,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
 
                             masks_tensor_list = []
                             for m in masks_list:
-                                masks_tensor_list.append(torch.stack(masks_list[m]))
+                                masks_tensor_list.append(torch.stack(m))
 
                             masks = torch.stack(masks_tensor_list).to(device)
                         else:
