@@ -961,7 +961,8 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                             embeddings = torch.stack(multi_text_embeddings).to(device)
                             embeddings = rearrange(embeddings, 'f b n c -> (b f) n c')
                             masked_embeddings = [embeddings]
-                            masks[seq].append(1)
+                            for i in seq:
+                                masks[i].append(1)
 
                         masks = torch.tensor(masks).to(device)
 
