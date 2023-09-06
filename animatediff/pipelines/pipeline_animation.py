@@ -635,6 +635,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
             controlnet_keep,
             controlnet_conditioning_scale,
             guess_mode,
+            temporal_context,
             do_classifier_free_guidance):
 
         down_block_res_samples = None
@@ -977,6 +978,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                                     controlnet_keep,
                                     controlnet_conditioning_scale,
                                     guess_mode,
+                                    temporal_context,
                                     do_classifier_free_guidance)
 
                             # predict the noise residual
