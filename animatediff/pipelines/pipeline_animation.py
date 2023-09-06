@@ -817,12 +817,12 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                 for masked_part_prompt in part_prompt.prompts:
                     masked_embeddings = self._encode_prompt(
                         compel,
-                        [masked_part_prompt], device, num_videos_per_prompt,
+                        [masked_part_prompt['prompt']], device, num_videos_per_prompt,
                         do_classifier_free_guidance, negative_prompt,
                         lora_scale=text_encoder_lora_scale,
                     )
                     masked_part_prompt['embeddings'] = masked_embeddings
-                    parted_text_embeddings[int(start_frame)] = part_prompt
+                parted_text_embeddings[int(start_frame)] = part_prompt
             else:
                 embeddings = self._encode_prompt(
                     compel,
