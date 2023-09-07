@@ -785,7 +785,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
 
           filled_masked_prompts.append(masked_prompt)
 
-        return MaskedPromptHelper(filled_masked_prompts)
+        return MaskedPromptHelper(filled_masked_prompts, device)
 
 
     @torch.no_grad()
