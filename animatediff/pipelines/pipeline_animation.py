@@ -58,7 +58,7 @@ class MaskedPrompt:
             'prompt': prompt,
             'negative_prompt': negative_prompt,
             'embeddings': embeddings,
-            controlnet_scale=controlnet_scale
+            controlnet_scale: controlnet_scale,
         }]
 
     def addMask(self, mask, prompt, negative_prompt, embeddings = None, controlnet_scale=1.0):
@@ -68,7 +68,7 @@ class MaskedPrompt:
             'prompt': prompt,
             'negative_prompt': negative_prompt,
             'embeddings': embeddings,
-            controlnet_scale=controlnet_scale
+            controlnet_scale: controlnet_scale,
         })
 
 class MaskedPromptHelper:
