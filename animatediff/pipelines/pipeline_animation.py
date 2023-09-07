@@ -92,7 +92,7 @@ class MaskedPromptHelper:
         return self
 
     def __next__(self):
-        if self.layer > self.length:
+        if self.layer >= self.length:
             raise StopIteration
 
         embeddings = self.embeddings()
