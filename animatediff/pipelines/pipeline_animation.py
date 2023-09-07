@@ -51,17 +51,56 @@ class MaskedPrompt:
     prompt.addMask(mask, "prompt")
     """
 
-    def __init__(self, prompt, width, height):
+    def __init__(self, prompt, negative_prompt, width, height, embeddings = None):
         mask = torch.ones((height//8, width//8))
-        self.prompts = [{'mask': mask, 'prompt': prompt}]
+        self.prompts = [{'mask': mask, 'prompt': prompt, 'negative_prompt': negative_prompt, 'embeddings': embeddings}]
 
-    def addMask(mask, prompt):
+    def addMask(mask, prompt, negative_prompt, embeddings = None):
         self.prompts[0]['mask'] = torch.clamp(self.prompts[0]['mask'] - mask, 0, 1)
-        self.prompts.append({'mask': mask, 'prompt': prompt})
+        self.prompts.append({'mask': mask, 'prompt': prompt, 'negative_prompt': negative_prompt, 'embeddings': embeddings})
 
-class MaskedPromptProcessor:
-    pass
+class MaskedPromptHelper:
+    def __init__(self, masked_prompts, device):
+        self.prompts = masked_prompts
+        self.length = len(self.prompts[0].prompts)
+        self.iter = 0
+        self.device = device
 
+    def part(self, seq):
+        parted = [self.prompts[i] for i in seq]
+        return MaskedPromptHelper(parted, self.device)
+
+    def embeddings(self):
+        embeddings = []
+        for frame_prompt in self.prompts:
+            embeddings.append(frame_prompt.prompts[self.layer]['embeddings'])
+
+        embeddings = torch.stack(embeddings).to(self.device)
+        embeddings = rearrange(embeddings, 'f b n c -> (b f) n c')
+        return embeddings
+
+    def mask(self):
+        masks = []
+        for frame_prompt in self.prompts:
+            masks.append(frame_prompt.prompts[self.layer]['mask'])
+
+        masks = torch.stack(masks).to(self.device)
+        return masks
+
+    def __iter__(self):
+        self.layer = 0
+        return self
+
+    def __next__(self):
+        if self.layer > self.length:
+            raise StopIteration
+
+        embeddings = self.embeddings()
+        latent_mask = self.mask()
+
+        self.layer += 1
+
+        return embeddings, latent_mask
 
 @dataclass
 class AnimationPipelineOutput(BaseOutput):
@@ -698,6 +737,57 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
         return down_block_res_samples, mid_block_res_sample
 
 
+    def get_masked_prompts(self,
+                           prompt,
+                           negative_prompt,
+                           video_length,
+                           width,
+                           height,
+                           compel,
+                           device,
+                           num_videos_per_prompt,
+                           do_classifier_free_guidance,
+                           text_encoder_lora_scale,
+                           ):
+
+        masked_prompts = [None] * video_length
+
+        for i in range(video_length):
+            if isinstance(prompt, str):
+                masked_prompts[i] = MaskedPrompt(prompt, negative_prompt, width, height)
+            if isinstance(prompt, MaskedPrompt):
+                masked_prompts[i] = prompt
+            elif isinstance(prompt, dict):
+                for start_frame in prompt:
+                    part_prompt = prompt[start_frame]
+                    if isinstance(part_prompt, str):
+                        masked_prompts[i] = MaskedPrompt(part_prompt, negative_prompt, width, height)
+                    elif isinstance(part_prompt, MaskedPrompt):
+                        masked_prompts[i] = part_prompt
+
+        for masked_prompt in masked_prompts:
+          if masked_prompt != None:
+              for prompt in masked_prompt.prompts:
+                  prompt['embeddings'] = self._encode_prompt(
+                      compel,
+                      prompt['prompt'], device, num_videos_per_prompt,
+                      do_classifier_free_guidance, prompt['negative_prompt'],
+                      lora_scale=text_encoder_lora_scale,
+                  )
+
+        filled_masked_prompts = []
+        last_masked_prompt = None
+        for masked_prompt in masked_prompts:
+          if masked_prompt != None:
+            last_masked_prompt = masked_prompt
+          else:
+            masked_prompt = last_masked_prompt
+
+          filled_masked_prompts.append(masked_prompt)
+
+        return MaskedPromptHelper(filled_masked_prompts)
+
+
     @torch.no_grad()
     def __call__(
         self,
@@ -798,57 +888,23 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
             )
             guess_mode = guess_mode or global_pool_conditions
 
-        # Encode input prompt
-        prompt = prompt if isinstance(prompt, list) else [prompt] * batch_size
-        if negative_prompt is not None:
-            negative_prompt = negative_prompt if isinstance(negative_prompt, list) else [negative_prompt] * batch_size
-
-
-        parted_text_embeddings = [None] * video_length
 
         text_encoder_lora_scale = (
             cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
         )
 
-        if isinstance(prompt[0], dict):
-          for start_frame in prompt[0]:
-            part_prompt = prompt[0][start_frame]
-            if isinstance(part_prompt, MaskedPrompt):
-                for masked_part_prompt in part_prompt.prompts:
-                    masked_embeddings = self._encode_prompt(
-                        compel,
-                        [masked_part_prompt['prompt']], device, num_videos_per_prompt,
-                        do_classifier_free_guidance, negative_prompt,
-                        lora_scale=text_encoder_lora_scale,
-                    )
-                    masked_part_prompt['embeddings'] = masked_embeddings
-                parted_text_embeddings[int(start_frame)] = part_prompt
-            else:
-                embeddings = self._encode_prompt(
-                    compel,
-                    [part_prompt], device, num_videos_per_prompt,
-                    do_classifier_free_guidance, negative_prompt,
-                    lora_scale=text_encoder_lora_scale,
+        masked_prompts = self.get_masked_prompts(
+                prompt,
+                negative_prompt,
+                video_length,
+                width,
+                height,
+                compel,
+                device,
+                num_videos_per_prompt,
+                do_classifier_free_guidance,
+                text_encoder_lora_scale,
                 )
-                parted_text_embeddings[int(start_frame)] = embeddings
-        else:
-          text_embeddings = self._encode_prompt(
-              compel,
-              prompt, device, num_videos_per_prompt,
-              do_classifier_free_guidance, negative_prompt,
-                lora_scale=text_encoder_lora_scale,
-          )
-          parted_text_embeddings[0] = text_embeddings
-
-        final_text_embeddings = []
-        last_embeddings = None
-        for embeddings in parted_text_embeddings:
-          if embeddings != None:
-            last_embeddings = embeddings
-          else:
-            embeddings = last_embeddings
-
-          final_text_embeddings.append(embeddings)
 
         if self.controlnet != None:
             # 4. Prepare image
@@ -940,41 +996,14 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                         .repeat(2 if do_classifier_free_guidance else 1, 1, 1, 1, 1)
                     latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-                    multi_text_embeddings = [final_text_embeddings[i] for i in seq]
                     down_block_res_samples = None
                     mid_block_res_sample = None
-                    masks = None
 
-                    with torch.autocast('cuda', enabled=fp16, dtype=torch.float16):
+                    with torch.autocast(device, enabled=fp16, dtype=torch.float16):
 
-                        if isinstance(multi_text_embeddings[0], MaskedPrompt):
-                            masks_list = [[]] * temporal_context
-                            masked_embeddings = []
-                            masked_embeddings_layer = [[]]*temporal_context
-                            for frame_masked_prompt in multi_text_embeddings:
-                                for layer_idx, prompt in enumerate(frame_masked_prompt.prompts):
-                                    masked_embeddings_layer[layer_idx].append(prompt['embeddings'])
-                                    masks_list[seq[0] + layer_idx].append(prompt['mask'])
+                        parted_prompts = masked_prompts.part(seq)
+                        for embeddings, latent_mask in parted_prompts:
 
-                            for layer_embeddings in masked_embeddings_layer:
-                                embeddings = torch.stack(layer_embeddings).to(device)
-                                embeddings = rearrange(embeddings, 'f b n c -> (b f) n c')
-                                masked_embeddings.append(embeddings)
-
-                            masks_tensor_list = []
-                            for m in masks_list:
-                                masks_tensor_list.append(torch.stack(m))
-
-                            masks = torch.stack(masks_tensor_list).to(device)
-                        else:
-                            embeddings = torch.stack(multi_text_embeddings).to(device)
-                            embeddings = rearrange(embeddings, 'f b n c -> (b f) n c')
-                            masked_embeddings = [embeddings]
-                            masks = torch.stack([torch.ones_like(latent_model_input)])
-
-
-                        preds = []
-                        for embeddings in masked_embeddings:
                             if self.controlnet != None:
                                 down_block_res_samples, mid_block_res_sample = self.calc_cnet_residuals(
                                     i,
@@ -997,10 +1026,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                                              mid_block_additional_residual=mid_block_res_sample,
                                              encoder_hidden_states=embeddings)
 
-                            preds.append(pred)
-
-                    for pred_idx, pred in enumerate(preds):
-                        noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device=device) * masks[pred_idx]
+                            noise_pred[:, :, seq] += pred.sample.to(dtype=latents_dtype, device=device) * latent_mask
 
                     counter[:, :, seq] += 1
                     progress_bar.update()
