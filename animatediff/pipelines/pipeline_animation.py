@@ -55,7 +55,7 @@ class MaskedPrompt:
         mask = torch.ones((height//8, width//8))
         self.prompts = [{'mask': mask, 'prompt': prompt, 'negative_prompt': negative_prompt, 'embeddings': embeddings}]
 
-    def addMask(mask, prompt, negative_prompt, embeddings = None):
+    def addMask(self, mask, prompt, negative_prompt, embeddings = None):
         self.prompts[0]['mask'] = torch.clamp(self.prompts[0]['mask'] - mask, 0, 1)
         self.prompts.append({'mask': mask, 'prompt': prompt, 'negative_prompt': negative_prompt, 'embeddings': embeddings})
 
