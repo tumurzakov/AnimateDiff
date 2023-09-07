@@ -51,13 +51,25 @@ class MaskedPrompt:
     prompt.addMask(mask, "prompt")
     """
 
-    def __init__(self, prompt, negative_prompt, width, height, embeddings = None):
+    def __init__(self, prompt, negative_prompt, width, height, embeddings = None, controlnet_scale=1.0):
         mask = torch.ones((height//8, width//8))
-        self.prompts = [{'mask': mask, 'prompt': prompt, 'negative_prompt': negative_prompt, 'embeddings': embeddings}]
+        self.prompts = [{
+            'mask': mask,
+            'prompt': prompt,
+            'negative_prompt': negative_prompt,
+            'embeddings': embeddings,
+            controlnet_scale=controlnet_scale
+        }]
 
-    def addMask(self, mask, prompt, negative_prompt, embeddings = None):
+    def addMask(self, mask, prompt, negative_prompt, embeddings = None, controlnet_scale=1.0):
         self.prompts[0]['mask'] = torch.clamp(self.prompts[0]['mask'] - mask, 0, 1)
-        self.prompts.append({'mask': mask, 'prompt': prompt, 'negative_prompt': negative_prompt, 'embeddings': embeddings})
+        self.prompts.append({
+            'mask': mask,
+            'prompt': prompt,
+            'negative_prompt': negative_prompt,
+            'embeddings': embeddings,
+            controlnet_scale=controlnet_scale
+        })
 
 class MaskedPromptHelper:
     def __init__(self, masked_prompts, device):
@@ -87,6 +99,13 @@ class MaskedPromptHelper:
         masks = torch.stack(masks).to(self.device)
         return masks
 
+    def controlnet_scale(self):
+        scale = []
+        for frame_prompt in self.prompts:
+            scale.append(frame_prompt.prompts[self.layer]['controlnet_scale'])
+
+        return scale
+
     def __iter__(self):
         self.layer = 0
         return self
@@ -97,10 +116,11 @@ class MaskedPromptHelper:
 
         embeddings = self.embeddings()
         latent_mask = self.mask()
+        controlnet_scale = self.controlnet_scale()
 
         self.layer += 1
 
-        return embeddings, latent_mask
+        return embeddings, latent_mask, controlnet_scale
 
 @dataclass
 class AnimationPipelineOutput(BaseOutput):
@@ -1002,9 +1022,9 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                     with torch.autocast('cuda', enabled=fp16, dtype=torch.float16):
 
                         parted_prompts = masked_prompts.part(seq)
-                        for embeddings, latent_mask in parted_prompts:
+                        for embeddings, latent_mask, controlnet_scale in parted_prompts:
 
-                            if self.controlnet != None:
+                            if self.controlnet != None and controlnet_scale[0] > 0:
                                 down_block_res_samples, mid_block_res_sample = self.calc_cnet_residuals(
                                     i,
                                     t,
@@ -1013,7 +1033,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                                     image,
                                     latent_model_input,
                                     controlnet_keep,
-                                    controlnet_conditioning_scale,
+                                    controlnet_scale[0],
                                     guess_mode,
                                     temporal_context,
                                     do_classifier_free_guidance)
