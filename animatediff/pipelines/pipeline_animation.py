@@ -999,7 +999,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                     down_block_res_samples = None
                     mid_block_res_sample = None
 
-                    with torch.autocast(device, enabled=fp16, dtype=torch.float16):
+                    with torch.autocast('cuda', enabled=fp16, dtype=torch.float16):
 
                         parted_prompts = masked_prompts.part(seq)
                         for embeddings, latent_mask in parted_prompts:
