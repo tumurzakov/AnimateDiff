@@ -1033,7 +1033,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                                     image,
                                     latent_model_input,
                                     controlnet_keep,
-                                    controlnet_scale[0],
+                                    [controlnet_scale[0]]*len(self.controlnet.nets),
                                     guess_mode,
                                     temporal_context,
                                     do_classifier_free_guidance)
