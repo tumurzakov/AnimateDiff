@@ -62,8 +62,8 @@ class MaskedPrompt:
         }]
 
     def addMask(self, mask, prompt, negative_prompt, embeddings = None, controlnet_scale=1.0):
-        for prompt in self.prompts:
-            prompt['mask'] = torch.clamp(prompt['mask'] - mask, 0, 1)
+        for prev_prompt in self.prompts:
+            prev_prompt['mask'] = torch.clamp(prev_prompt['mask'] - mask, 0, 1)
 
         self.prompts.append({
             'mask': mask,
