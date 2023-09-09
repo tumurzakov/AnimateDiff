@@ -32,9 +32,10 @@ class FramesDataset(Dataset):
             sample_frame_rate: int = 8,
             variance_threshold: int = 50,
             tokenizer: CLIPTokenizer = None,
+            mode: str = 'random',
     ):
 
-        print("FramesDataset", "init", width, height, video_length, sample_count)
+        print("FramesDataset", "init", width, height, video_length, sample_count, mode)
 
         self.width = width
         self.height = height
@@ -45,6 +46,7 @@ class FramesDataset(Dataset):
         self.sample_start_index = sample_start_index
         self.sample_frame_rate = sample_frame_rate
         self.variance_threshold = variance_threshold
+        self.mode = mode
 
         self.samples = []
 
@@ -100,7 +102,11 @@ class FramesDataset(Dataset):
 
         sample_index = self.sample_start_index
         while True:
-            key_frame = random.choice(candidates)
+            if self.mode == 'random':
+                key_frame = random.choice(candidates)
+            else:
+                key_frame = candidates[sample_index]
+
             print("FramesDataset", "pick", "key_frame", key_frame)
 
             dir_name = os.path.dirname(key_frame)
