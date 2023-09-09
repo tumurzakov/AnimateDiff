@@ -124,7 +124,7 @@ class FramesDataset(Dataset):
 
             print("FramesDataset", "pick", "reading sample", sample.shape)
 
-            if not self.check(sample):
+            if self.mode == 'random' and not self.check(sample):
                 print("FramesDataset", "pick", "skip")
                 continue
 
