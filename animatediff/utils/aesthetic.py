@@ -34,7 +34,9 @@ class Aesthetic:
 
         self.device = device
 
-        pt_state = torch.load(state_name, map_location=torch.device(device=device))
+        self.state_name = "sac+logos+ava1-l14-linearMSE.pth"
+
+        pt_state = torch.load(self.state_name, map_location=torch.device(device=device))
 
         # CLIP embedding dim is 768 for CLIP ViT L 14
         self.predictor = AestheticPredictor(768)
@@ -45,7 +47,7 @@ class Aesthetic:
         self.clip_model, self.clip_preprocess = clip.load("ViT-L/14", device=device)
 
     def fetch_model(self):
-        state_name = "sac+logos+ava1-l14-linearMSE.pth"
+        state_name = self.state_name
         if not Path(state_name).exists():
             url = f"https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/main/{state_name}?raw=true"
             import requests
