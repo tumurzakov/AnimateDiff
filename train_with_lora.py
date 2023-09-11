@@ -517,15 +517,15 @@ def main(
                             outputs = save_videos_grid(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
                             samples.append(sample)
 
-                            if report_facenet_distance:
-                                distance = facenet.distance(outputs[0])
-                                tracker.log({"facenet_distance": distance})
-
-                            if report_aesthetic_score:
-                                score = aethetic.score(outputs[0])
-                                tracker.log({"aesthetic_score": score})
-
                             for tracker in accelerator.trackers:
+								if report_facenet_distance:
+									distance = facenet.distance(outputs[0])
+									tracker.log({"facenet_distance": distance})
+
+								if report_aesthetic_score:
+									score = aethetic.score(outputs[0])
+									tracker.log({"aesthetic_score": score})
+
                                 if tracker.name == "wandb":
                                     tracker.log(
                                         {
