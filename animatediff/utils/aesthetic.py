@@ -69,7 +69,7 @@ class Aesthetic:
 
 
     def get_score(self, image):
-        pil_image = Image.from_array(image)
+        pil_image = Image.fromarray(image)
         image_features = self.get_image_features(pil_image)
         score = self.predictor(torch.from_numpy(image_features).to(self.device).float())
         return score.item()
