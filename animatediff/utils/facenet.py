@@ -24,7 +24,7 @@ class Facenet:
         return (e1 - e2).norm().item()
 
     @torch.no_grad()
-    def distance(self, image):
+    def get_distance(self, image):
         e = self.calc_embedding(image)
         return self.calc_distance(self.reference, e)
 

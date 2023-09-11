@@ -519,11 +519,11 @@ def main(
 
                             for tracker in accelerator.trackers:
                                 if report_facenet_distance:
-                                    distance = facenet.distance(outputs[0])
+                                    distance = facenet.get_distance(outputs[0])
                                     tracker.log({"facenet_distance": distance})
 
                                 if report_aesthetic_score:
-                                    score = aesthetic.score(outputs[0])
+                                    score = aesthetic.get_score(outputs[0])
                                     tracker.log({"aesthetic_score": score})
 
                                 if tracker.name == "wandb":
