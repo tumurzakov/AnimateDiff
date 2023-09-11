@@ -11,9 +11,11 @@ class Facenet:
         self.reference = self.calc_embedding(reference)
 
     def calc_embedding(self, img):
-        img_cropped = self.mtcnn(img, save_path='/content/facenet.png')[0]
+        img_cropped = self.mtcnn(img)[0]
         if img_cropped == None:
             return None
+
+        print("facenet", img_cropped.shape)
 
         img_embedding = self.resnet(img_cropped.unsqueeze(0).to(self.device))
         return img_embedding
