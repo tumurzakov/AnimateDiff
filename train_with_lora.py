@@ -412,7 +412,7 @@ def main(
 
     aesthetic = None
     if report_aesthetic_score:
-        from animatediff.utils.facenet import Aesthetic
+        from animatediff.utils.aesthetic import Aesthetic
         aesthetic = Aesthetic(accelerator.device)
 
     for epoch in range(first_epoch, num_train_epochs):
