@@ -514,15 +514,15 @@ def main(
                                                          latents=ddim_inv_latent,
                                                          fp16=True,
                                                          **validation_data).videos
-                            save_videos_grid(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
+                            outputs = save_videos_grid(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
                             samples.append(sample)
 
                             if report_facenet_distance:
-                                distance = facenet.distance(sample[0])
+                                distance = facenet.distance(outputs[0])
                                 tracker.log({"facenet_distance": distance})
 
                             if report_aesthetic_score:
-                                score = aethetic.score(sample[0])
+                                score = aethetic.score(outputs[0])
                                 tracker.log({"aesthetic_score": score})
 
                             for tracker in accelerator.trackers:

@@ -11,6 +11,12 @@ from einops import rearrange
 
 
 def save_videos_grid(videos: torch.Tensor, path: str, rescale=False, n_rows=6, fps=8):
+    outputs = get_videos_grid(videos, rescale, n_rows, fps)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    imageio.mimsave(path, outputs, duration=len(outputs)/fps)
+    return outputs
+
+def get_videos_grid(videos: torch.Tensor, rescale=False, n_rows=6, fps=8):
     videos = rearrange(videos, "b c t h w -> t b c h w")
     outputs = []
     for x in videos:
@@ -21,8 +27,6 @@ def save_videos_grid(videos: torch.Tensor, path: str, rescale=False, n_rows=6, f
         x = (x * 255).numpy().astype(np.uint8)
         outputs.append(x)
 
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    imageio.mimsave(path, outputs, duration=len(outputs)/fps)
     return outputs
 
 
