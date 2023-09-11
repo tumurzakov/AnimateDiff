@@ -5,8 +5,9 @@ from einops import rearrange
 class Facenet:
 
     def __init__(self, reference, resolution, device):
+        self.device = device
         self.mtcnn = MTCNN(image_size=resolution, device=device)
-        self.resnet = InceptionResnetV1(pretrained='vggface2').eval().to(device)
+        self.resnet = InceptionResnetV1(pretrained='vggface2').eval().to(self.device)
         self.reference = self.calc_embedding(reference)
 
     def calc_embedding(self, img):
@@ -14,7 +15,7 @@ class Facenet:
         if img_cropped == None:
             return None
 
-        img_embedding = self.resnet(img_cropped.unsqueeze(0).to(device))
+        img_embedding = self.resnet(img_cropped.unsqueeze(0).to(self.device))
         return img_embedding
 
     def calc_distance(self, e1, e2):
