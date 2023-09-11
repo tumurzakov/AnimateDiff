@@ -406,6 +406,7 @@ def main(
     if report_facenet_distance:
         from animatediff.utils.facenet import Facenet
         ref = Image.open(report_facenet_reference_path)
+        ref = torch.tensor(np.array(ref)).to(accelerator.device)
         facenet = Facenet(ref, 512, accelerator.device)
 
     aesthetic = None
