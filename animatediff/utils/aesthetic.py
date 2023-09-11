@@ -30,11 +30,12 @@ class AestheticPredictor(nn.Module):
 class Aesthetic:
 
     def __init__(self, device):
-        self.fetch_model()
 
         self.device = device
 
         self.state_name = "sac+logos+ava1-l14-linearMSE.pth"
+
+        self.fetch_model()
 
         pt_state = torch.load(self.state_name, map_location=torch.device(device=device))
 
