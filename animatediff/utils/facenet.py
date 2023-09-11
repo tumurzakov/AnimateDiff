@@ -11,11 +11,14 @@ class Facenet:
         self.reference = self.calc_embedding(reference)
 
     def calc_embedding(self, img):
+        print('facenet', 'input', img.shape)
         img_cropped = self.mtcnn(img)[0]
+        print('facenet', 'mtcnn', img_cropped.shape if img_cropped != None else 'None')
         if img_cropped == None:
             return None
 
         img_embedding = self.resnet(img_cropped.unsqueeze(0).to(self.device))
+        print('facenet', 'embedding', img_embedding.shape)
         return img_embedding
 
     def calc_distance(self, e1, e2):
