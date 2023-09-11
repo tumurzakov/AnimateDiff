@@ -36,6 +36,8 @@ from diffusers.models.attention_processor import LoRAAttnProcessor
 from animatediff.utils.convert_from_ckpt import convert_ldm_unet_checkpoint, convert_ldm_clip_checkpoint, convert_ldm_vae_checkpoint
 from safetensors import safe_open
 
+from PIL import Image
+
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.10.0.dev0")
 
