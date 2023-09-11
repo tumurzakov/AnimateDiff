@@ -32,15 +32,17 @@ class Aesthetic:
     def __init__(self, device):
         self.fetch_model()
 
+        self.device = device
+
         pt_state = torch.load(state_name, map_location=torch.device(device=device))
 
         # CLIP embedding dim is 768 for CLIP ViT L 14
-        predictor = AestheticPredictor(768)
-        predictor.load_state_dict(pt_state)
-        predictor.to(device)
-        predictor.eval()
+        self.predictor = AestheticPredictor(768)
+        self.predictor.load_state_dict(pt_state)
+        self.predictor.to(device)
+        self.predictor.eval()
 
-        clip_model, clip_preprocess = clip.load("ViT-L/14", device=device)
+        self.clip_model, self.clip_preprocess = clip.load("ViT-L/14", device=device)
 
     def fetch_model(self):
         state_name = "sac+logos+ava1-l14-linearMSE.pth"
@@ -52,10 +54,10 @@ class Aesthetic:
                 f.write(r.content)
 
 
-    def get_image_features(self, image, device=device, model=clip_model, preprocess=clip_preprocess):
-        image = preprocess(image).unsqueeze(0).to(device)
+    def get_image_features(self, image):
+        image = self.clip_preprocess(image).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            image_features = model.encode_image(image)
+            image_features = self.clip_model.encode_image(image)
             # l2 normalize
             image_features /= image_features.norm(dim=-1, keepdim=True)
         image_features = image_features.cpu().detach().numpy()
@@ -63,6 +65,6 @@ class Aesthetic:
 
 
     def get_score(self, image):
-        image_features = get_image_features(image)
-        score = predictor(torch.from_numpy(image_features).to(device).float())
+        image_features = self.get_image_features(image)
+        score = self.predictor(torch.from_numpy(image_features).to(self.device).float())
         return score.item()
