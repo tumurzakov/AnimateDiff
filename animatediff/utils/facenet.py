@@ -21,7 +21,7 @@ class Facenet:
     def calc_distance(self, e1, e2):
         if e1 == None or e2 == None:
             return None
-        return (e1 - e2).norm().item()
+        return (e1 - e2).norm()
 
     @torch.no_grad()
     def get_distance(self, image):
