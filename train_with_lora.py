@@ -123,7 +123,7 @@ def main(
         mixed_precision=mixed_precision,
         log_with=report_to,
     )
-    if args.report_to == "wandb":
+    if report_to == "wandb":
         if not is_wandb_available():
             raise ImportError("Make sure to install wandb if you want to use it for logging during training.")
         import wandb
