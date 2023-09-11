@@ -536,6 +536,7 @@ def main(
                                         {
                                             "validation": [
                                                 wandb.Image(outputs[0], caption=f"{i}: {prompt}")
+                                                for i, image in enumerate(outputs)
                                             ]
                                         }
                                     )
