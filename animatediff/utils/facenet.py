@@ -31,7 +31,7 @@ class Facenet:
 
         distances = []
         for im in images:
-            e = self.calc_embedding(image)
+            e = self.calc_embedding(im)
             d = self.calc_distance(self.reference, e)
             distances.append(d)
 
