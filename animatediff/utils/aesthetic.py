@@ -69,7 +69,19 @@ class Aesthetic:
 
 
     def get_score(self, image):
-        pil_image = Image.fromarray(image)
-        image_features = self.get_image_features(pil_image)
-        score = self.predictor(torch.from_numpy(image_features).to(self.device).float())
-        return score.item()
+        images = [image]
+        if isinstance(image, list):
+            images = image
+
+        scores = []
+        for im in images:
+            pil_image = Image.fromarray(im)
+            image_features = self.get_image_features(pil_image)
+            score = self.predictor(torch.from_numpy(image_features).to(self.device).float())
+            scores.append(score)
+
+        s = torch.stack(scores)
+        avg = torch.mean(s.float(), dim=0)
+
+        return avg
+

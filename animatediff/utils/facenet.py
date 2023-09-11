@@ -25,8 +25,20 @@ class Facenet:
 
     @torch.no_grad()
     def get_distance(self, image):
-        e = self.calc_embedding(image)
-        return self.calc_distance(self.reference, e)
+        images = [image]
+        if isinstance(image, list):
+            images = image
+
+        distances = []
+        for im in images:
+            e = self.calc_embedding(image)
+            d = self.calc_distance(self.reference, e)
+            distances.append(d)
+
+        d = torch.stack(distances)
+        avg = torch.mean(d.float(), dim=0)
+
+        return avg
 
     @torch.no_grad()
     def calc_latent_embedding(self, latents, vae):
