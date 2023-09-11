@@ -523,7 +523,7 @@ def main(
                                     tracker.log({"facenet_distance": distance})
 
                                 if report_aesthetic_score:
-                                    score = aethetic.score(outputs[0])
+                                    score = aesthetic.score(outputs[0])
                                     tracker.log({"aesthetic_score": score})
 
                                 if tracker.name == "wandb":
