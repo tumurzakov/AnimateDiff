@@ -406,12 +406,12 @@ def main(
     if report_facenet_distance:
         from animatediff.utils.facenet import Facenet
         ref = Image.open(report_facenet_reference_path)
-        facenet = Facenet(ref, 512, device)
+        facenet = Facenet(ref, 512, accelerator.device)
 
     aesthetic = None
     if report_aesthetic_score:
         from animatediff.utils.facenet import Aesthetic
-        aesthetic = Aesthetic(device)
+        aesthetic = Aesthetic(accelerator.device)
 
     for epoch in range(first_epoch, num_train_epochs):
         unet.train()
