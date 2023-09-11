@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import clip
 import platform
+from PIL import Image
 
 class AestheticPredictor(nn.Module):
     def __init__(self, input_size):
@@ -68,6 +69,7 @@ class Aesthetic:
 
 
     def get_score(self, image):
-        image_features = self.get_image_features(image)
+        pil_image = Image.from_array(image)
+        image_features = self.get_image_features(pil_image)
         score = self.predictor(torch.from_numpy(image_features).to(self.device).float())
         return score.item()
