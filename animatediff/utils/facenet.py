@@ -4,7 +4,7 @@ from einops import rearrange
 
 class Facenet:
 
-    def __init__(self, reference, resultion, device):
+    def __init__(self, reference, resolution, device):
         self.mtcnn = MTCNN(image_size=resolution, device=device)
         self.resnet = InceptionResnetV1(pretrained='vggface2').eval().to(device)
         self.reference = self.calc_embedding(reference)
