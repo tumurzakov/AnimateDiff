@@ -37,6 +37,7 @@ from animatediff.utils.convert_from_ckpt import convert_ldm_unet_checkpoint, con
 from safetensors import safe_open
 
 from PIL import Image
+import numpy as np
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.10.0.dev0")
