@@ -36,7 +36,6 @@ from diffusers.models.attention_processor import LoRAAttnProcessor
 from animatediff.utils.convert_from_ckpt import convert_ldm_unet_checkpoint, convert_ldm_clip_checkpoint, convert_ldm_vae_checkpoint
 from safetensors import safe_open
 
-
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.10.0.dev0")
 
@@ -108,6 +107,9 @@ def main(
     lora_rank: int = 4,
     lora_resume_from_checkpoint: Optional[str] = None,
     report_to: str = None,
+    report_facenet_distance: bool = False,
+    report_facenet_reference_path: str = None,
+    report_aesthetic_score: bool = False,
 ):
     *_, config = inspect.getargvalues(inspect.currentframe())
 
@@ -398,6 +400,17 @@ def main(
     progress_bar = tqdm(range(global_step, max_train_steps), disable=not accelerator.is_local_main_process)
     progress_bar.set_description("Steps")
 
+    facenet = None
+    if report_facenet_distance:
+        from animatediff.utils.facenet import Facenet
+        ref = Image.open(report_facenet_reference_path)
+        facenet = Facenet(ref, 512, device)
+
+    aesthetic = None
+    if report_aesthetic_score:
+        from animatediff.utils.facenet import Aesthetic
+        aesthetic = Aesthetic(device)
+
     for epoch in range(first_epoch, num_train_epochs):
         unet.train()
         train_loss = 0.0
@@ -499,6 +512,27 @@ def main(
                                                          **validation_data).videos
                             save_videos_grid(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
                             samples.append(sample)
+
+                            if report_facenet_distance:
+                                distance = facenet.distance(sample[0])
+                                tracker.log({"facenet_distance": distance})
+
+                            if report_aesthetic_score:
+                                score = aethetic.score(sample[0])
+                                tracker.log({"aesthetic_score": score})
+
+                            for tracker in accelerator.trackers:
+                                if tracker.name == "wandb":
+                                    tracker.log(
+                                        {
+                                            "validation": [
+                                                wandb.Image(image, caption=f"{i}: {args.validation_prompt}")
+                                                for i, image in enumerate(sample)
+                                            ]
+                                        }
+                                    )
+
+
                         samples = torch.concat(samples)
                         save_path = f"{output_dir}/samples/sample-{global_step}.gif"
                         save_videos_grid(samples, save_path)
