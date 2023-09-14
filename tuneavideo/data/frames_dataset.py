@@ -69,10 +69,11 @@ class FramesDataset(Dataset):
         files = sorted(os.listdir(self.samples_dir), key=extract_integer)
         for filename in files:
             if 'json' in filename:
-                with open(f"{self.samples_dir}/{filename}", 'r') as f:
+                full_path = f"{self.samples_dir}/{filename}"
+                with open(full_path, 'r') as f:
                     sample = json.loads(f.read())
                     sample['prompt_ids'] = self.tokenize(sample['prompt'])
-                    sample['video_file'] = filename.replace("json", "mp4")
+                    sample['video_file'] = full_path.replace("json", "mp4")
                     self.samples.append(sample)
         print("FramesDataset", "load", "samples", len(self.samples))
 
