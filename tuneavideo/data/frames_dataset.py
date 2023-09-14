@@ -72,6 +72,7 @@ class FramesDataset(Dataset):
                 with open(f"{self.samples_dir}/{filename}", 'r') as f:
                     sample = json.loads(f.read())
                     sample['prompt_ids'] = self.tokenize(sample['prompt'])
+                    sample['video_file'] = filename.replace("json", "mp4")
                     self.samples.append(sample)
         print("FramesDataset", "load", "samples", len(self.samples))
 
