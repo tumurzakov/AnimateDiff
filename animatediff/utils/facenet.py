@@ -33,6 +33,8 @@ class Facenet:
         for im in images:
             e = self.calc_embedding(im)
             d = self.calc_distance(self.reference, e)
+            if d is None:
+                d = 1
             distances.append(d)
 
         d = torch.stack(distances)
