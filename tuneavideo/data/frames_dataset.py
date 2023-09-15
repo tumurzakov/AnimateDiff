@@ -33,6 +33,8 @@ class FramesDataset(Dataset):
             variance_threshold: int = 50,
             tokenizer: CLIPTokenizer = None,
             mode: str = 'random',
+            prompt_prefix = '',
+            prompt_postfix = '',
     ):
 
         print("FramesDataset", "init", width, height, video_length, sample_count, mode)
@@ -47,6 +49,8 @@ class FramesDataset(Dataset):
         self.sample_frame_rate = sample_frame_rate
         self.variance_threshold = variance_threshold
         self.mode = mode
+        self.prompt_prefix = prompt_prefix
+        self.prompt_postfix = prompt_postfix
 
         self.samples = []
 
@@ -62,16 +66,14 @@ class FramesDataset(Dataset):
     def load(self):
         print("FramesDataset", "load", "samples_dir", self.samples_dir)
 
-        def extract_integer(filename):
-            return int(filename.split('.')[0])
-
         self.samples = []
-        files = sorted(os.listdir(self.samples_dir), key=extract_integer)
-        for filename in files:
+        for filename in os.listdir(self.samples_dir):
             if 'json' in filename:
                 full_path = f"{self.samples_dir}/{filename}"
                 with open(full_path, 'r') as f:
                     sample = json.loads(f.read())
+                    prompt = "%s %s %s" % (self.prompt_prefix, sample['prompt'], self.prompt_postfix)
+                    sample['prompt'] = prompt
                     sample['prompt_ids'] = self.tokenize(sample['prompt'])
                     sample['video_file'] = full_path.replace("json", "mp4")
                     self.samples.append(sample)
