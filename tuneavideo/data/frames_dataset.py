@@ -35,9 +35,10 @@ class FramesDataset(Dataset):
             mode: str = 'random',
             prompt_prefix = '',
             prompt_postfix = '',
+            debug = False,
     ):
 
-        print("FramesDataset", "init", width, height, video_length, sample_count, mode)
+        print("FramesDataset", "init", width, height, video_length, sample_count, mode, prompt_prefix, prompt_postfix)
 
         self.width = width
         self.height = height
@@ -51,6 +52,7 @@ class FramesDataset(Dataset):
         self.mode = mode
         self.prompt_prefix = prompt_prefix
         self.prompt_postfix = prompt_postfix
+        self.debug = debug
 
         self.samples = []
 
@@ -73,6 +75,8 @@ class FramesDataset(Dataset):
                 with open(full_path, 'r') as f:
                     sample = json.loads(f.read())
                     prompt = "%s %s %s" % (self.prompt_prefix, sample['prompt'], self.prompt_postfix)
+                    if self.debug:
+                        print("FramesDataset", "load", "prompt", prompt)
                     sample['prompt'] = prompt
                     sample['prompt_ids'] = self.tokenize(sample['prompt'])
                     sample['video_file'] = full_path.replace("json", "mp4")
