@@ -113,6 +113,7 @@ def main(
     report_facenet_distance: bool = False,
     report_facenet_reference_path: str = None,
     report_aesthetic_score: bool = False,
+    report_validation_images: bool = False,
 ):
     *_, config = inspect.getargvalues(inspect.currentframe())
 
@@ -531,7 +532,7 @@ def main(
                                     score = aesthetic.get_score(outputs)
                                     tracker.log({"aesthetic_score": score})
 
-                                if tracker.name == "wandb":
+                                if report_validation_images and tracker.name == "wandb":
                                     tracker.log(
                                         {
                                             "validation": [
