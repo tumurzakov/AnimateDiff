@@ -34,7 +34,7 @@ class Facenet:
             e = self.calc_embedding(im)
             d = self.calc_distance(self.reference, e)
             if d is None:
-                d = 1
+                d = torch.tensor(1).to(self.device)
             distances.append(d)
 
         d = torch.stack(distances)
