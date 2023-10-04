@@ -587,6 +587,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
 
         from diffusers.utils import WEIGHTS_NAME, SAFETENSORS_WEIGHTS_NAME
         model = cls.from_config(config, **unet_additional_kwargs)
+		model_file = os.path.join(pretrained_model_path, WEIGHTS_NAME)
         safetensors_model_file = os.path.join(pretrained_model_path, SAFETENSORS_WEIGHTS_NAME)
 
         if os.path.isfile(model_file):
