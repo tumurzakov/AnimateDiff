@@ -585,7 +585,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
         ]
         config["mid_block_type"] = "UNetMidBlock3DCrossAttn"
 
-        from diffusers.utils import WEIGHTS_NAME
+        from diffusers.utils import WEIGHTS_NAME, SAFETENSORS_WEIGHTS_NAME
         model = cls.from_config(config, **unet_additional_kwargs)
         safetensors_model_file = os.path.join(pretrained_model_path, SAFETENSORS_WEIGHTS_NAME)
 
