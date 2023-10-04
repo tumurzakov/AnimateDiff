@@ -587,7 +587,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
 
         from diffusers.utils import WEIGHTS_NAME
         model = cls.from_config(config, **unet_additional_kwargs)
-		safetensors_model_file = os.path.join(pretrained_model_path, SAFETENSORS_WEIGHTS_NAME)
+        safetensors_model_file = os.path.join(pretrained_model_path, SAFETENSORS_WEIGHTS_NAME)
 
         if os.path.isfile(model_file):
             state_dict = torch.load(model_file, map_location="cpu")
