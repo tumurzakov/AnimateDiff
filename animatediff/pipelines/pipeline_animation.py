@@ -25,7 +25,8 @@ from diffusers.schedulers import (
     LMSDiscreteScheduler,
     PNDMScheduler,
 )
-from diffusers.utils import deprecate, logging, BaseOutput, is_compiled_module
+from diffusers.utils import deprecate, logging, BaseOutput
+from diffusers.utils.torch_utils import is_compiled_module
 from diffusers.pipelines.controlnet import MultiControlNetModel
 
 from einops import rearrange, repeat
