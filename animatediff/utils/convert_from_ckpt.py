@@ -627,13 +627,13 @@ def convert_ldm_vae_checkpoint(checkpoint, config):
     meta_path = {"old": "mid.attn_1", "new": "mid_block.attentions.0"}
     assign_to_checkpoint(paths, new_checkpoint, vae_state_dict, additional_replacements=[meta_path], config=config)
 
-    meta_path = {"old": "encoder.mid_block.attentions.0.key", "new": "encoder.mid_block.attentions.0.to_k"}
+    meta_path = {"old": "mid_block.attentions.0.key", "new": "mid_block.attentions.0.to_k"}
     assign_to_checkpoint(paths, new_checkpoint, vae_state_dict, additional_replacements=[meta_path], config=config)
 
-    meta_path = {"old": "encoder.mid_block.attentions.0.query", "new": "encoder.mid_block.attentions.0.to_q"}
+    meta_path = {"old": "mid_block.attentions.0.query", "new": "mid_block.attentions.0.to_q"}
     assign_to_checkpoint(paths, new_checkpoint, vae_state_dict, additional_replacements=[meta_path], config=config)
 
-    meta_path = {"old": "encoder.mid_block.attentions.0.value", "new": "encoder.mid_block.attentions.0.to_v"}
+    meta_path = {"old": "mid_block.attentions.0.value", "new": "mid_block.attentions.0.to_v"}
     assign_to_checkpoint(paths, new_checkpoint, vae_state_dict, additional_replacements=[meta_path], config=config)
 
     conv_attn_to_linear(new_checkpoint)
