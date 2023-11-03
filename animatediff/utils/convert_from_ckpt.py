@@ -627,6 +627,9 @@ def convert_ldm_vae_checkpoint(checkpoint, config):
     meta_path = {"old": "mid.attn_1", "new": "mid_block.attentions.0"}
     assign_to_checkpoint(paths, new_checkpoint, vae_state_dict, additional_replacements=[meta_path], config=config)
 
+    mid_attentions = [key for key in vae_state_dict if "mid_block.attentions" in key]
+    paths = renew_vae_attention_paths(mid_attentions)
+
     meta_path = {"old": "mid_block.attentions.0.key", "new": "mid_block.attentions.0.to_k"}
     assign_to_checkpoint(paths, new_checkpoint, vae_state_dict, additional_replacements=[meta_path], config=config)
 
