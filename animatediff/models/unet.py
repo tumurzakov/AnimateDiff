@@ -28,6 +28,7 @@ from .unet_blocks import (
     get_up_block,
 )
 from .resnet import InflatedConv3d
+from safetensors.torch import load_model
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -582,17 +583,20 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
             "CrossAttnUpBlock3D",
             "CrossAttnUpBlock3D"
         ]
+        config["mid_block_type"] = "UNetMidBlock3DCrossAttn"
 
-        from diffusers.utils import WEIGHTS_NAME
+        from diffusers.utils import WEIGHTS_NAME, SAFETENSORS_WEIGHTS_NAME
         model = cls.from_config(config, **unet_additional_kwargs)
         model_file = os.path.join(pretrained_model_path, WEIGHTS_NAME)
-        if not os.path.isfile(model_file):
-            raise RuntimeError(f"{model_file} does not exist")
-        state_dict = torch.load(model_file, map_location="cpu")
+        safetensors_model_file = os.path.join(pretrained_model_path, SAFETENSORS_WEIGHTS_NAME)
 
-        m, u = model.load_state_dict(state_dict, strict=False)
-        print(f"### missing keys: {len(m)}; \n### unexpected keys: {len(u)};")
-        # print(f"### missing keys:\n{m}\n### unexpected keys:\n{u}\n")
+        if os.path.isfile(model_file):
+            state_dict = torch.load(model_file, map_location="cpu")
+            m, u = model.load_state_dict(state_dict, strict=False)
+            print(f"### missing keys: {len(m)}; \n### unexpected keys: {len(u)};")
+        elif os.path.isfile(safetensors_model_file):
+            m, u = load_model(model, safetensors_model_file, strict=False)
+            print(f"### missing keys: {len(m)}; \n### unexpected keys: {len(u)};")
 
         params = [p.numel() if "temporal" in n else 0 for n, p in model.named_parameters()]
         print(f"### Temporal Module Parameters: {sum(params) / 1e6} M")
