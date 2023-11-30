@@ -779,7 +779,7 @@ def convert_ldm_clip_checkpoint(checkpoint):
         if key.startswith("cond_stage_model.transformer"):
             text_model_dict[key[len("cond_stage_model.transformer.") :]] = checkpoint[key]
 
-    text_model.load_state_dict(text_model_dict)
+    text_model.load_state_dict(text_model_dict, strict=False)
 
     return text_model
 
