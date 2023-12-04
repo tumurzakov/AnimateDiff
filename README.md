@@ -23,6 +23,8 @@
    }
    ```
 7. Updated to last diffusers version
+8. Train LoRA (all layers, sd and mm at once, could be separated if needed)
+9. Region prompter
 
 # AnimateDiff
 
