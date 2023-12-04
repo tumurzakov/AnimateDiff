@@ -657,21 +657,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                 f"image must be passed and be one of PIL image, numpy array, torch tensor, list of PIL images, list of numpy arrays or list of torch tensors, but is {type(image)}"
             )
 
-        #if image_is_pil:
-        #    image_batch_size = 1
-        #else:
-        #    image_batch_size = len(image)
-
-        #if prompt is not None and isinstance(prompt, str):
-        #    prompt_batch_size = 1
-        #elif prompt is not None and isinstance(prompt, list):
-        #    prompt_batch_size = len(prompt)
-
-        #if image_batch_size != 1 and image_batch_size != prompt_batch_size:
-        #    raise ValueError(
-        #        f"If image batch size is not 1, image batch size must be same as prompt batch size. image batch size: {image_batch_size}, prompt batch size: {prompt_batch_size}"
-        #    )
-
     def prepare_image(
         self,
         image,
@@ -687,7 +672,14 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
 
         images = []
         for image_ in image:
-            pil_image = PIL.Image.fromarray(image_.cpu().detach().numpy())
+            pil_image = None
+            if isinstance(image_, str):
+                pil_image = PIL.Image.open(image_)
+            elif isinstance(image_, torch.Tensor):
+                pil_image = PIL.Image.fromarray(image_.cpu().detach().numpy())
+            else:
+                raise TypeError('Unknown type')
+
             processed_image = self.control_image_processor.preprocess(pil_image, height=height, width=width).to(dtype=torch.float32)
             numpy_image = np.array(processed_image)
             tensor_image = torch.tensor(numpy_image).squeeze(0)
@@ -703,7 +695,21 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
 
         return image
 
-    def prepare_latents(self, init_image, timestep, batch_size, num_channels_latents, video_length, height, width, dtype, device, generator, latents=None):
+    def prepare_latents(self,
+            init_image,
+            timestep,
+            batch_size,
+            num_channels_latents,
+            video_length,
+            temporal_context,
+            height,
+            width,
+            dtype,
+            device,
+            generator,
+            latents=None):
+
+        rand_device = "cpu" if device.type == "mps" else device
         shape = (batch_size, num_channels_latents, video_length, height // self.vae_scale_factor, width // self.vae_scale_factor)
 
         init_latents = None
@@ -759,7 +765,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
             )
 
         if latents is None:
-            rand_device = "cpu" if device.type == "mps" else device
 
             if isinstance(generator, list):
                 shape = shape
@@ -776,13 +781,14 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                 else:
                     latents = self.scheduler.add_noise(init_latents, noise, timestep)
 
-                    #noise = torch.randn(shape, generator=generator, device=rand_device, dtype=dtype).to(self.vae.device)
-                    #noise_length = video_length - overlap_frames
-                    #frame_noise_scale = 1
-                    #for i in range(noise_length):
-                    #    frame = i + overlap_frames
-                    #    init_alpha = float(i) / noise_length / frame_noise_scale
-                    #    latents[:, :, frame, :, :] += (noise[:, :, frame, :, :] * init_alpha)
+                    noise = torch.randn(shape, generator=generator, device=rand_device, dtype=dtype).to(self.vae.device)
+                    noise_length = video_length - overlap_frames
+                    frame_noise_scale = 30
+                    for i in range(noise_length):
+                        frame = i + overlap_frames
+                        init_alpha = float(i) / noise_length / frame_noise_scale
+                        latents[:, :, frame, :, :] += (noise[:, :, frame, :, :] * init_alpha)
+
         else:
             if latents.shape != shape:
                 raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
@@ -1113,6 +1119,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
             batch_size * num_videos_per_prompt,
             num_channels_latents,
             video_length,
+            temporal_context,
             height,
             width,
             torch.float32,
@@ -1153,7 +1160,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
 
                 if read_latent_cache and latent_cache_size > 0:
                     for cache_latent_idx in range(latent_cache_size):
-                        latents[:,:,cache_latent_idx,:,:] = self.latent_cache[t.item()][:,:,cache_latent_idx,:,:].to(self.unet.device)
+                        latents[:,:,cache_latent_idx,:,:] = self.latent_cache[t.item()][:,:,cache_latent_idx,:,:].clone().to(self.unet.device)
 
                 if latent_cache_size > 0:
                     self.latent_cache[t.item()] = latent_cache
