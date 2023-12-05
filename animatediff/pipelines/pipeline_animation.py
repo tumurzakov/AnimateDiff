@@ -893,7 +893,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                            controlnet_conditioning_scale,
                            ):
 
-        masked_prompts = [None] * video_length
+        masked_prompts = [None for x in range(video_length)]
 
         for i in range(video_length):
             if isinstance(prompt, str):
