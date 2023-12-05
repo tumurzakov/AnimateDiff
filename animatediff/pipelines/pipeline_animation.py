@@ -902,11 +902,17 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                 masked_prompts[i] = prompt
             elif isinstance(prompt, dict):
                 for start_frame in prompt:
-                    part_prompt = prompt[start_frame]
-                    if isinstance(part_prompt, str):
-                        masked_prompts[i] = MaskedPrompt(part_prompt, negative_prompt, width, height, controlnet_scale=controlnet_conditioning_scale)
-                    elif isinstance(part_prompt, MaskedPrompt):
-                        masked_prompts[i] = part_prompt
+                    if i >= start_frame:
+                        part_prompt = prompt[start_frame]
+                        if isinstance(part_prompt, str):
+                            masked_prompts[i] = MaskedPrompt(part_prompt,
+                                    negative_prompt,
+                                    width,
+                                    height,
+                                    controlnet_scale=controlnet_conditioning_scale)
+
+                        elif isinstance(part_prompt, MaskedPrompt):
+                            masked_prompts[i] = part_prompt
             else:
                 t = str(type(prompt))
                 raise TypeError(f"Unknown prompt type {t}")
