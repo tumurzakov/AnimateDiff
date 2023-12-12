@@ -1,12 +1,17 @@
+import os
+import sys
+import json
+
 import argparse
+import itertools
 import datetime
 import logging
 import inspect
 import math
-import os
 from typing import Dict, Optional, Tuple
 from omegaconf import OmegaConf
 from collections import OrderedDict
+from PIL import Image
 
 import torch
 import torch.nn.functional as F
@@ -24,23 +29,65 @@ from diffusers.utils.import_utils import is_xformers_available
 from diffusers.loaders import AttnProcsLayers
 from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
-
-from animatediff.models.unet import UNet3DConditionModel
-from tuneavideo.data.frames_dataset import FramesDataset
-from tuneavideo.data.multi_dataset import MultiTuneAVideoDataset
-from animatediff.pipelines.pipeline_animation import AnimationPipeline
-from tuneavideo.util import save_videos_grid, ddim_inversion
-from einops import rearrange, repeat
-
 from diffusers.models.attention_processor import LoRAAttnProcessor
-from animatediff.utils.convert_from_ckpt import convert_ldm_unet_checkpoint, convert_ldm_clip_checkpoint, convert_ldm_vae_checkpoint
 from safetensors import safe_open
 
+from diffusers.loaders import LoraLoaderMixin
+from diffusers.models.attention_processor import (
+    AttnAddedKVProcessor,
+    AttnAddedKVProcessor2_0,
+    SlicedAttnAddedKVProcessor,
+)
+from diffusers.models.lora import LoRALinearLayer
+from diffusers.training_utils import unet_lora_state_dict
+
+import wandb
+
+from animatediff.models.unet import UNet3DConditionModel
+from animatediff.pipelines.pipeline_animation import AnimationPipeline
+from animatediff.utils.convert_from_ckpt import convert_ldm_unet_checkpoint, convert_ldm_clip_checkpoint, convert_ldm_vae_checkpoint
+from animatediff.utils.util import save_videos_grid, ddim_inversion
+from einops import rearrange, repeat
+
+from animatediff.utils.dataset import AnimateDiffDataset
+
+from inspect import currentframe
+
+def text_encoder_lora_state_dict(text_encoder):
+    state_dict = {}
+
+    for name, module in text_encoder_attn_modules(text_encoder):
+        for k, v in module.q_proj.lora_linear_layer.state_dict().items():
+            state_dict[f"{name}.q_proj.lora_linear_layer.{k}"] = v
+
+        for k, v in module.k_proj.lora_linear_layer.state_dict().items():
+            state_dict[f"{name}.k_proj.lora_linear_layer.{k}"] = v
+
+        for k, v in module.v_proj.lora_linear_layer.state_dict().items():
+            state_dict[f"{name}.v_proj.lora_linear_layer.{k}"] = v
+
+        for k, v in module.out_proj.lora_linear_layer.state_dict().items():
+            state_dict[f"{name}.out_proj.lora_linear_layer.{k}"] = v
+
+    return state_dict
+
+def get_linenumber():
+    cf = currentframe()
+    return cf.f_back.f_lineno
+
+def log_memory(line):
+    """
+    memory = torch.cuda.mem_get_info()
+    allocated = memory[1] - memory[0]
+    scale = 1000*1000*1000
+    logger.info("memory line:%d %.2fG" % (line, allocated/scale))
+    """
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.10.0.dev0")
 
 logger = get_logger(__name__, log_level="INFO")
+
 
 def load_checkpoint(path, unet, vae, text_encoder):
     if path.endswith(".ckpt"):
@@ -57,14 +104,15 @@ def load_checkpoint(path, unet, vae, text_encoder):
 
         # vae
         converted_vae_checkpoint = convert_ldm_vae_checkpoint(base_state_dict, vae.config)
-        #vae.load_state_dict(converted_vae_checkpoint)
+        vae.load_state_dict(converted_vae_checkpoint)
         # unet
         converted_unet_checkpoint = convert_ldm_unet_checkpoint(base_state_dict, unet.config)
         unet.load_state_dict(converted_unet_checkpoint, strict=False)
         # text_model
-        #text_encoder = convert_ldm_clip_checkpoint(base_state_dict)
+        text_encoder = convert_ldm_clip_checkpoint(base_state_dict)
 
         return unet, vae, text_encoder
+
 
 def main(
     pretrained_model_path: str,
@@ -91,7 +139,6 @@ def main(
     gradient_accumulation_steps: int = 1,
     gradient_checkpointing: bool = True,
     checkpointing_steps: int = 500,
-    start_global_step: int = 0,
     resume_from_checkpoint: Optional[str] = None,
     mixed_precision: Optional[str] = "fp16",
     use_optimizer: str = 'AdamW',
@@ -101,12 +148,14 @@ def main(
     motion_module: str = "models/Motion_Module/mm_sd_v15.ckpt",
     inference_config_path: str = "configs/inference/inference.yaml",
     motion_module_pe_multiplier: int = 1,
-    dataset_class: str = 'MultiTuneAVideoDataset',
 
     train_dreambooth: bool = False,
     train_lora: bool = False,
+    train_text_encoder: bool = False,
+
     lora_rank: int = 4,
-    lora_resume_from_checkpoint: Optional[str] = None,
+    lora_path: str = None,
+
     report_to: str = None,
 ):
     *_, config = inspect.getargvalues(inspect.currentframe())
@@ -126,6 +175,8 @@ def main(
         level=logging.INFO,
     )
     logger.info(accelerator.state, main_process_only=False)
+    log_memory(get_linenumber())
+
     if accelerator.is_local_main_process:
         transformers.utils.logging.set_verbosity_warning()
         diffusers.utils.logging.set_verbosity_info()
@@ -133,6 +184,7 @@ def main(
         transformers.utils.logging.set_verbosity_error()
         diffusers.utils.logging.set_verbosity_error()
 
+    log_memory(get_linenumber())
     # If passed along, set the training seed now.
     if seed is not None:
         set_seed(seed)
@@ -146,6 +198,8 @@ def main(
         os.makedirs(f"{output_dir}/inv_latents", exist_ok=True)
         OmegaConf.save(config, os.path.join(output_dir, 'config.yaml'))
 
+    log_memory(get_linenumber())
+
     # Load scheduler, tokenizer and models.
     noise_scheduler = DDPMScheduler.from_pretrained(pretrained_model_path, subfolder="scheduler")
     tokenizer = CLIPTokenizer.from_pretrained(pretrained_model_path, subfolder="tokenizer")
@@ -156,8 +210,12 @@ def main(
             subfolder="unet",
             unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs))
 
+    log_memory(get_linenumber())
+
     if dreambooth_path != None and dreambooth_path != "":
         unet, vae, text_encoder = load_checkpoint(dreambooth_path, unet, vae, text_encoder)
+
+    log_memory(get_linenumber())
 
     if motion_module != None and motion_module != "":
         motion_module_state_dict = torch.load(motion_module, map_location="cpu")
@@ -174,58 +232,135 @@ def main(
         missing, unexpected = unet.load_state_dict(motion_module_state_dict, strict=False)
         assert len(unexpected) == 0
 
+    log_memory(get_linenumber())
+
+    text_lora_parameters = []
+    unet_lora_parameters = []
+
     if train_lora:
-        # now we will add new LoRA weights to the attention layers
-        # It's important to realize here how many attention weights will be added and of which sizes
-        # The sizes of the attention layers consist only of two different variables:
-        # 1) - the "hidden_size", which is increased according to `unet.config.block_out_channels`.
-        # 2) - the "cross attention size", which is set to `unet.config.cross_attention_dim`.
-
-        # Let's first see how many attention processors we will have to set.
-        # For Stable Diffusion, it should be equal to:
-        # - down blocks (2x attention layers) * (2x transformer layers) * (3x down blocks) = 12
-        # - mid blocks (2x attention layers) * (1x transformer layers) * (1x mid blocks) = 2
-        # - up blocks (2x attention layers) * (3x transformer layers) * (3x down blocks) = 18
-        # => 32 layers
-
-        # Set correct lora layers
-        lora_attn_procs = {}
-        for name in unet.attn_processors.keys():
-            cross_attention_dim = None if name.endswith("attn1.processor") else unet.config.cross_attention_dim
-            if name.startswith("mid_block"):
-                hidden_size = unet.config.block_out_channels[-1]
-            elif name.startswith("up_blocks"):
-                block_id = int(name[len("up_blocks.")])
-                hidden_size = list(reversed(unet.config.block_out_channels))[block_id]
-            elif name.startswith("down_blocks"):
-                block_id = int(name[len("down_blocks.")])
-                hidden_size = unet.config.block_out_channels[block_id]
-
-            lora_attn_procs[name] = LoRAAttnProcessor(
-                hidden_size=hidden_size,
-                cross_attention_dim=cross_attention_dim,
-                rank=lora_rank,
+        if lora_path is not None:
+            logging.info(f"Loading LoRA {lora_path}")
+            lora_state_dict, network_alphas = LoraLoaderMixin.lora_state_dict(lora_path, use_safetensors=True)
+            LoraLoaderMixin.load_lora_into_unet(lora_state_dict, network_alphas=network_alphas, unet=unet)
+            LoraLoaderMixin.load_lora_into_text_encoder(
+                lora_state_dict, network_alphas=network_alphas, text_encoder=text_encoder
             )
 
-        if lora_resume_from_checkpoint != None:
-            unet.load_attn_procs(lora_resume_from_checkpoint)
-        else:
-            unet.set_attn_processor(lora_attn_procs)
+        def find_lora_compatible_layers(module, path, found):
+            for n, m in module.named_children():
+                p = path + [n]
+                if find_lora_compatible_layers(m, p, found):
+                    found.append(p)
+
+            if 'LoRACompatibleLinear' in str(type(module)) and hasattr(module, 'set_lora_layer'):
+                for m in ['to_q', 'to_k', 'to_v', 'to_out']:
+                    if m in ".".join(path):
+                        return True
+
+            return False
+
+        def update_lora_parameters(unet):
+            lora_layers = []
+            find_lora_compatible_layers(unet, [], lora_layers)
+
+            for path in lora_layers:
+                path = ".".join(path)
+
+                lora_module = unet
+                for n in path.split("."):
+                    lora_module = getattr(lora_module, n)
+
+                lora_module.set_lora_layer(
+                    LoRALinearLayer(
+                        in_features=lora_module.in_features,
+                        out_features=lora_module.out_features,
+                        rank=lora_rank,
+                        device=unet.device,
+                        dtype=unet.dtype,
+                    )
+                )
+
+                unet_lora_parameters.extend(lora_module.lora_layer.parameters())
+
+            return unet_lora_parameters
+
+        unet_lora_parameters = update_lora_parameters(unet)
+
+        # The text encoder comes from 🤗 transformers, so we cannot directly modify it.
+        # So, instead, we monkey-patch the forward calls of its attention-blocks.
+        if train_text_encoder:
+            # ensure that dtype is float32, even if rest of the model that isn't trained is loaded in fp16
+            text_lora_parameters = LoraLoaderMixin._modify_text_encoder(text_encoder, dtype=torch.float32, rank=lora_rank)
+
+        # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
+        def save_model_hook(models, weights, output_dir):
+            if accelerator.is_main_process and len(weights) > 0:
+                # there are only two options here. Either are just the unet attn processor layers
+                # or there are the unet and text encoder atten layers
+                unet_lora_layers_to_save = None
+                text_encoder_lora_layers_to_save = None
+
+                for model in models:
+                    if isinstance(model, type(accelerator.unwrap_model(unet))):
+                        unet_lora_layers_to_save = unet_lora_state_dict(model)
+                    elif isinstance(model, type(accelerator.unwrap_model(text_encoder))):
+                        text_encoder_lora_layers_to_save = text_encoder_lora_state_dict(model)
+                    else:
+                        raise ValueError(f"unexpected save model: {model.__class__}")
+
+                    # make sure to pop weight so that corresponding model is not saved again
+                    weights.pop()
+
+                LoraLoaderMixin.save_lora_weights(
+                    output_dir,
+                    unet_lora_layers=unet_lora_layers_to_save,
+                    text_encoder_lora_layers=text_encoder_lora_layers_to_save,
+                    )
+
+        def load_model_hook(models, input_dir):
+            unet_ = None
+            text_encoder_ = None
+
+            while len(models) > 0:
+                model = models.pop()
+
+                if isinstance(model, type(accelerator.unwrap_model(unet))):
+                    unet_ = model
+                elif isinstance(model, type(accelerator.unwrap_model(text_encoder))):
+                    text_encoder_ = model
+                else:
+                    raise ValueError(f"unexpected save model: {model.__class__}")
+
+            if unet_ is not None:
+                lora_state_dict, network_alphas = LoraLoaderMixin.lora_state_dict(input_dir)
+                LoraLoaderMixin.load_lora_into_unet(lora_state_dict, network_alphas=network_alphas, unet=unet_)
+                LoraLoaderMixin.load_lora_into_text_encoder(
+                    lora_state_dict, network_alphas=network_alphas, text_encoder=text_encoder_
+                )
+                unet_lora_parameters = update_lora_parameters(unet_)
+
+        accelerator.register_save_state_pre_hook(save_model_hook)
+        accelerator.register_load_state_pre_hook(load_model_hook)
+
+    log_memory(get_linenumber())
 
     # Freeze vae and text_encoder
     vae.requires_grad_(False)
     text_encoder.requires_grad_(False)
-    unet.requires_grad_(train_dreambooth)
+    unet.requires_grad_(False)
 
-    for name, module in unet.named_modules():
-        if "motion_modules" in name and (train_whole_module or name.endswith(tuple(trainable_modules))):
-            for params in module.parameters():
-                params.requires_grad = True
+    log_memory(get_linenumber())
 
-    if train_lora:
-        lora_layers = AttnProcsLayers(unet.attn_processors)
-        for param in lora_layers.parameters():
-            param.requires_grad = True
+    mm_parameters = []
+    unet_parameters = []
+    if train_dreambooth:
+        unet_parameters.extend(unet.parameters())
+    elif train_whole_module or len(trainable_modules) > 0:
+        for name, module in unet.named_modules():
+            if "motion_modules" in name and (train_whole_module or name.endswith(tuple(trainable_modules))):
+                mm_parameters.extend(module.parameters())
+
+    log_memory(get_linenumber())
 
     if enable_xformers_memory_efficient_attention:
         if is_xformers_available():
@@ -233,13 +368,34 @@ def main(
         else:
             raise ValueError("xformers is not available. Make sure it is installed correctly")
 
+    log_memory(get_linenumber())
+
     if gradient_checkpointing:
         unet.enable_gradient_checkpointing()
+        if train_text_encoder:
+            text_encoder.gradient_checkpointing_enable()
+
+    log_memory(get_linenumber())
 
     if scale_lr:
         learning_rate = (
             learning_rate * gradient_accumulation_steps * train_batch_size * accelerator.num_processes
         )
+
+    logger.info("Optimize:")
+    logger.info("* unet_params: %d" % len(unet_parameters))
+    logger.info("* unet_lora_params: %d" % len(unet_lora_parameters))
+    logger.info("* text_lora_params: %d" % len(text_lora_parameters))
+    logger.info("* mm_params: %d" % len(mm_parameters))
+
+    all_parameters = unet_parameters + unet_lora_parameters + text_lora_parameters + mm_parameters
+    for param in all_parameters:
+        param.requires_grad_(True)
+
+    log_memory(get_linenumber())
+
+    # Optimizer creation
+    params_to_optimize = itertools.chain(unet_parameters, unet_lora_parameters, text_lora_parameters, mm_parameters)
 
     # Initialize the optimizer
     optimizer = None
@@ -261,7 +417,7 @@ def main(
             )
 
         optimizer = dadaptation.DAdaptAdam(
-            unet.parameters(),
+            params_to_optimize,
             lr=1.,
             weight_decay=adam_weight_decay,
         )
@@ -275,7 +431,7 @@ def main(
 
         # https://rentry.org/59xed3
         optimizer = prodigyopt.Prodigy(
-            unet.parameters(),
+            params_to_optimize,
             lr=1.,
             decouple=True,
             weight_decay=0.01,
@@ -288,32 +444,26 @@ def main(
 
     if optimizer == None:
         optimizer = optimizer_cls(
-            unet.parameters(),
-            lr=learning_rate,
+            params_to_optimize,
+            lr=float(learning_rate),
             betas=(adam_beta1, adam_beta2),
             weight_decay=adam_weight_decay,
             eps=adam_epsilon,
         )
 
-    # Get the training dataset
-    train_dataset = None
-    if dataset_class == 'MultiTuneAVideoDataset':
-        train_dataset = MultiTuneAVideoDataset(**train_data)
+    log_memory(get_linenumber())
 
-        # Preprocessing the dataset
-        train_dataset.prompt_ids = [None] * len(train_dataset.prompt)
-        for index, prompt in enumerate(train_dataset.prompt):
-            train_dataset.prompt_ids[index] = tokenizer(
-                prompt,max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
-            ).input_ids[0]
-    else:
-        train_dataset = FramesDataset(tokenizer=tokenizer, **train_data)
-        train_dataset.load()
+    # Get the training dataset
+    train_dataset = AnimateDiffDataset(tokenizer=tokenizer, **train_data)
+
+    log_memory(get_linenumber())
 
     # DataLoaders creation:
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset, batch_size=train_batch_size
     )
+
+    log_memory(get_linenumber())
 
     # Get the validation pipeline
     validation_pipeline = AnimationPipeline(
@@ -324,6 +474,8 @@ def main(
     ddim_inv_scheduler = DDIMScheduler.from_pretrained(pretrained_model_path, subfolder='scheduler')
     ddim_inv_scheduler.set_timesteps(validation_data.num_inv_steps)
 
+    log_memory(get_linenumber())
+
     # Scheduler
     lr_scheduler = get_scheduler(
         lr_scheduler,
@@ -332,10 +484,19 @@ def main(
         num_training_steps=max_train_steps * gradient_accumulation_steps,
     )
 
+    log_memory(get_linenumber())
+
     # Prepare everything with our `accelerator`.
-    unet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-        unet, optimizer, train_dataloader, lr_scheduler
-    )
+    if train_text_encoder:
+        unet, text_encoder, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
+            unet, text_encoder, optimizer, train_dataloader, lr_scheduler
+        )
+    else:
+        unet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
+            unet, optimizer, train_dataloader, lr_scheduler
+        )
+
+    log_memory(get_linenumber())
 
     # For mixed precision training we cast the text_encoder and vae weights to half-precision
     # as these models are only used for inference, keeping weights in full precision is not required.
@@ -345,9 +506,13 @@ def main(
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
+    log_memory(get_linenumber())
+
     # Move text_encode and vae to gpu and cast to weight_dtype
     text_encoder.to(accelerator.device, dtype=weight_dtype)
     vae.to(accelerator.device, dtype=weight_dtype)
+
+    log_memory(get_linenumber())
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / gradient_accumulation_steps)
@@ -357,7 +522,9 @@ def main(
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
     if accelerator.is_main_process:
-        accelerator.init_trackers("text2video-fine-tune")
+        accelerator.init_trackers("animatediff")
+
+    log_memory(get_linenumber())
 
     # Train!
     total_batch_size = train_batch_size * accelerator.num_processes * gradient_accumulation_steps
@@ -371,11 +538,6 @@ def main(
     logger.info(f"  Total optimization steps = {max_train_steps}")
     global_step = 0
     first_epoch = 0
-
-    if start_global_step > 0:
-        global_step = start_global_step
-        first_epoch = global_step // num_update_steps_per_epoch
-        resume_step = global_step % num_update_steps_per_epoch
 
     # Potentially load in the weights and states from a previous save
     if resume_from_checkpoint:
@@ -394,6 +556,8 @@ def main(
         first_epoch = global_step // num_update_steps_per_epoch
         resume_step = global_step % num_update_steps_per_epoch
 
+    log_memory(get_linenumber())
+
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(global_step, max_train_steps), disable=not accelerator.is_local_main_process)
     progress_bar.set_description("Steps")
@@ -402,6 +566,8 @@ def main(
         unet.train()
         train_loss = 0.0
         for step, batch in enumerate(train_dataloader):
+            log_memory(get_linenumber())
+
             # Skip steps until we reach the resumed step
             if resume_from_checkpoint and epoch == first_epoch and step < resume_step:
                 if step % gradient_accumulation_steps == 0:
@@ -450,7 +616,7 @@ def main(
                 # Backpropagate
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(unet.parameters(), max_grad_norm)
+                    accelerator.clip_grad_norm_(params_to_optimize, max_grad_norm)
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad()
@@ -464,6 +630,8 @@ def main(
 
                 if global_step % checkpointing_steps == 0:
                     if accelerator.is_main_process:
+                        log_memory(get_linenumber())
+
                         if train_whole_module or len(trainable_modules) > 0:
                             save_path = os.path.join(output_dir, f"mm-{global_step}.pth")
                             save_mm_checkpoint(unet, save_path)
@@ -471,15 +639,20 @@ def main(
 
                         if train_lora:
                             save_path = os.path.join(output_dir, f"lora-{global_step}")
-                            save_lora_checkpoint(unet, save_path)
+                            save_lora_checkpoint(unet, save_path, text_encoder if train_text_encoder else None, accelerator)
                             logger.info(f"Saved lora state to {save_path}")
 
-                        if train_dreambooth:
-                            save_path = os.path.join(output_dir, f"db-{global_step}")
-                            save_dreambooth_checkpoint(validation_pipeline, save_path)
+                        save_path = os.path.join(output_dir, f"checkpoint-{global_step}")
+                        accelerator.save_state(save_path)
+                        logger.info(f"Saved state to {save_path}")
+
+                        log_memory(get_linenumber())
+
 
                 if global_step % validation_steps == 0:
                     if accelerator.is_main_process:
+                        log_memory(get_linenumber())
+
                         samples = []
                         generator = torch.Generator(device=latents.device)
                         generator.manual_seed(seed)
@@ -492,17 +665,33 @@ def main(
                                 num_inv_steps=validation_data.num_inv_steps, prompt="")[-1].to(weight_dtype)
                             torch.save(ddim_inv_latent, inv_latents_path)
 
+                        wandb_images = []
                         for idx, prompt in enumerate(set(validation_data.prompts)):
                             sample = validation_pipeline(prompt, generator=generator,
                                                          latents=ddim_inv_latent,
                                                          fp16=True,
                                                          **validation_data).videos
-                            save_videos_grid(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
+                            outputs = save_videos_grid(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
                             samples.append(sample)
-                        samples = torch.concat(samples)
-                        save_path = f"{output_dir}/samples/sample-{global_step}.gif"
-                        save_videos_grid(samples, save_path)
-                        logger.info(f"Saved samples to {save_path}")
+                            for frame in outputs:
+                                wandb_images.append(wandb.Image(Image.fromarray(frame), caption=f"{prompt}:{idx}"))
+
+                        if len(samples) > 0:
+                            samples = torch.concat(samples)
+                            save_path = f"{output_dir}/samples/sample-{global_step}.gif"
+                            save_videos_grid(samples, save_path)
+                            logger.info(f"Saved samples to {save_path}")
+
+                        for tracker in accelerator.trackers:
+                            if tracker.name == "wandb":
+                                tracker.log(
+                                    {
+                                        "validation": wandb_images,
+                                    }
+                                )
+
+                        log_memory(get_linenumber())
+
 
             logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
@@ -513,7 +702,10 @@ def main(
     # Create the pipeline using the trained modules and save it.
     accelerator.wait_for_everyone()
     if accelerator.is_main_process:
+        log_memory(get_linenumber())
+
         unet = accelerator.unwrap_model(unet)
+        unet = unet.to(torch.float32)
         pipeline = AnimationPipeline.from_pretrained(
             pretrained_model_path,
             text_encoder=text_encoder,
@@ -526,13 +718,21 @@ def main(
             save_mm_checkpoint(unet, mm_path)
 
         if train_lora:
-            save_path = os.path.join(output_dir, f"lora")
-            save_lora_checkpoint(unet, save_path)
+            unet_lora_layers = unet_lora_state_dict(unet)
 
-        if train_dreambooth:
-            save_path = os.path.join(output_dir, f"db")
-            save_dreambooth_checkpoint(validation_pipeline, save_path)
+            if text_encoder is not None and train_text_encoder:
+                text_encoder = accelerator.unwrap_model(text_encoder)
+                text_encoder = text_encoder.to(torch.float32)
+                text_encoder_lora_layers = text_encoder_lora_state_dict(text_encoder)
+            else:
+                text_encoder_lora_layers = None
 
+            LoraLoaderMixin.save_lora_weights(
+                save_directory=output_dir,
+                unet_lora_layers=unet_lora_layers,
+                text_encoder_lora_layers=text_encoder_lora_layers,
+            )
+        log_memory(get_linenumber())
 
     accelerator.end_training()
 
@@ -545,11 +745,23 @@ def save_mm_checkpoint(unet, mm_path):
 
     torch.save(mm_state_dict, mm_path)
 
-def save_lora_checkpoint(unet, lora_path):
-    unet.save_attn_procs(lora_path)
+def save_lora_checkpoint(unet, output_dir, text_encoder, accelerator):
+    unet = accelerator.unwrap_model(unet)
+    unet = unet.to(torch.float32)
+    unet_lora_layers = unet_lora_state_dict(unet)
 
-def save_dreambooth_checkpoint(pipeline, output_dir, use_safetensors = False):
-    pipeline.save_pretrained(output_dir, safe_serialization=use_safetensors)
+    if text_encoder is not None:
+        text_encoder = accelerator.unwrap_model(text_encoder)
+        text_encoder = text_encoder.to(torch.float32)
+        text_encoder_lora_layers = text_encoder_lora_state_dict(text_encoder)
+    else:
+        text_encoder_lora_layers = None
+
+    LoraLoaderMixin.save_lora_weights(
+        save_directory=output_dir,
+        unet_lora_layers=unet_lora_layers,
+        text_encoder_lora_layers=text_encoder_lora_layers,
+    )
 
 
 if __name__ == "__main__":
@@ -557,4 +769,5 @@ if __name__ == "__main__":
     parser.add_argument("--config", type=str, default="./configs/tuneavideo.yaml")
     args = parser.parse_args()
 
-    main(**OmegaConf.load(args.config))
+    config = OmegaConf.load(args.config)
+    main(**config)

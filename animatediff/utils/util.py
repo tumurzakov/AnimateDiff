@@ -1,6 +1,7 @@
 import os
 import imageio
 import numpy as np
+import hashlib
 from typing import Union
 
 import torch
@@ -13,6 +14,11 @@ import PIL.Image
 import PIL.ImageOps
 from packaging import version
 from PIL import Image
+
+def decode_output(videos):
+    videos = rearrange(videos, "b c t h w -> (t b) h w c")
+    videos = videos * 255
+    return videos.to(torch.uint8)
 
 def get_videos_grid(videos: torch.Tensor, rescale=False, n_rows=6, fps=8):
     videos = rearrange(videos, "b c t h w -> t b c h w")
@@ -151,3 +157,10 @@ def preprocess_image(image):
     elif isinstance(image[0], torch.Tensor):
         image = torch.cat(image, dim=0)
     return image
+
+def tensor_hash(tensor):
+    tensor_bytes = tensor.numpy().tobytes()
+    hash_object = hashlib.sha256(tensor_bytes)
+    hash_value = hash_object.hexdigest()
+    return hash_value
+
