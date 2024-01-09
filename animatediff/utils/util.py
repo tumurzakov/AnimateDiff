@@ -65,7 +65,9 @@ def next_step(model_output: Union[torch.FloatTensor, np.ndarray], timestep: int,
               sample: Union[torch.FloatTensor, np.ndarray], ddim_scheduler):
     timestep, next_timestep = min(
         timestep - ddim_scheduler.config.num_train_timesteps // ddim_scheduler.num_inference_steps, 999), timestep
-    alpha_prod_t = ddim_scheduler.alphas_cumprod[timestep] if timestep >= 0 else ddim_scheduler.final_alpha_cumprod
+    timestep = timestep.to(torch.int)
+    next_timestep = next_timestep.to(torch.int)
+    alpha_prod_t = ddim_scheduler.alphas_cumprod[timestep] if timestep >= 0 else ddim_scheduler.alphas_cumprod[0]
     alpha_prod_t_next = ddim_scheduler.alphas_cumprod[next_timestep]
     beta_prod_t = 1 - alpha_prod_t
     next_original_sample = (sample - beta_prod_t ** 0.5 * model_output) / alpha_prod_t ** 0.5
@@ -80,12 +82,12 @@ def get_noise_pred_single(latents, t, context, unet):
 
 
 @torch.no_grad()
-def ddim_loop(pipeline, ddim_scheduler, latent, num_inv_steps, prompt):
+def ddim_loop(pipeline, ddim_scheduler, latent, num_inv_steps, prompt, desc=""):
     context = init_prompt(prompt, pipeline)
     uncond_embeddings, cond_embeddings = context.chunk(2)
     all_latent = [latent]
     latent = latent.clone().detach()
-    for i in tqdm(range(num_inv_steps)):
+    for i in tqdm(range(num_inv_steps), desc=desc):
         t = ddim_scheduler.timesteps[len(ddim_scheduler.timesteps) - i - 1]
         noise_pred = get_noise_pred_single(latent, t, cond_embeddings, pipeline.unet)
         latent = next_step(noise_pred, t, latent, ddim_scheduler)
@@ -94,8 +96,8 @@ def ddim_loop(pipeline, ddim_scheduler, latent, num_inv_steps, prompt):
 
 
 @torch.no_grad()
-def ddim_inversion(pipeline, ddim_scheduler, video_latent, num_inv_steps, prompt=""):
-    ddim_latents = ddim_loop(pipeline, ddim_scheduler, video_latent, num_inv_steps, prompt)
+def ddim_inversion(pipeline, ddim_scheduler, video_latent, num_inv_steps, prompt="", desc=""):
+    ddim_latents = ddim_loop(pipeline, ddim_scheduler, video_latent, num_inv_steps, prompt, desc)
     return ddim_latents
 
 if version.parse(version.parse(PIL.__version__).base_version) >= version.parse("9.1.0"):

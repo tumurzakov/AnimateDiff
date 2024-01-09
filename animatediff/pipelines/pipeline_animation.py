@@ -29,10 +29,7 @@ from diffusers.utils import deprecate, logging, BaseOutput
 from diffusers.utils.torch_utils import is_compiled_module
 from diffusers.pipelines.controlnet import MultiControlNetModel
 
-from ..utils.freeinit_utils import (
-    get_freq_filter,
-    freq_mix_3d,
-)
+from ..models.unet import UNet3DConditionOutput
 
 from diffusers.utils import (
     USE_PEFT_BACKEND,
@@ -50,6 +47,7 @@ from ..models.unet import UNet3DConditionModel
 from ..utils import overlap_policy
 from ..utils.path import get_absolute_path
 from ..utils.util import preprocess_image, tensor_hash
+from ..utils.adain import adaptive_instance_normalization
 from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
 from diffusers.utils.torch_utils import randn_tensor
 
@@ -68,18 +66,45 @@ class MaskedPrompt:
     prompt.addMask(mask, "prompt")
     """
 
-    def __init__(self, prompt, negative_prompt, width, height, embeddings = None, controlnet_scale=1.0):
-        mask = torch.ones((height//8, width//8))
+    def __init__(self,
+            prompt,
+            negative_prompt,
+            width,
+            height,
+            embeddings = None,
+            controlnet_scale=1.0,
+            loras=[],
+            mask_latents=[],
+            mask_crops=[],
+            mask_timesteps=[],
+            ):
+
+        mask = torch.ones((1, 1, 1, height//8, width//8))
         self.prompts = [{
             'mask': mask,
             'prompt': prompt,
             'negative_prompt': negative_prompt,
             'embeddings': embeddings,
             'controlnet_scale': controlnet_scale,
+            'loras': loras,
+            'mask_latents': mask_latents,
+            'mask_crops': mask_crops,
+            'mask_timesteps': mask_timesteps,
         }]
 
-    def addMask(self, mask, prompt, negative_prompt, embeddings = None, controlnet_scale=1.0):
-        for prev_prompt in self.prompts:
+    def addMask(self,
+            mask,
+            prompt,
+            negative_prompt,
+            embeddings = None,
+            controlnet_scale=1.0,
+            loras=[],
+            mask_latents=[],
+            mask_crops=[],
+            mask_timesteps=[],
+            ):
+
+        for i, prev_prompt in enumerate(self.prompts):
             prev_prompt['mask'] = torch.clamp(prev_prompt['mask'] - mask, 0, 1)
 
         self.prompts.append({
@@ -88,6 +113,10 @@ class MaskedPrompt:
             'negative_prompt': negative_prompt,
             'embeddings': embeddings,
             'controlnet_scale': controlnet_scale,
+            'loras': loras,
+            'mask_latents': mask_latents,
+            'mask_crops': mask_crops,
+            'mask_timesteps': mask_timesteps,
         })
 
 class MaskedPromptHelper:
@@ -118,7 +147,8 @@ class MaskedPromptHelper:
                 mask = mask[i]
             masks.append(mask)
 
-        masks = torch.stack(masks).to(self.device)
+        masks = torch.stack(masks, dim=3).squeeze(0).to(self.device)
+
         return masks
 
     def controlnet_scale(self):
@@ -127,6 +157,35 @@ class MaskedPromptHelper:
             scale.append(frame_prompt.prompts[self.layer]['controlnet_scale'])
 
         return scale
+
+    def loras(self):
+        loras = []
+
+        for frame_prompt in self.prompts:
+            loras.append(frame_prompt.prompts[self.layer]['loras'])
+
+        return []
+
+    def mask_latents(self):
+        for frame_prompt in self.prompts:
+            if frame_prompt.prompts[self.layer]['mask_latents'] is not None:
+                return frame_prompt.prompts[self.layer]['mask_latents']
+
+        return None
+
+    def mask_crops(self):
+        for frame_prompt in self.prompts:
+            if frame_prompt.prompts[self.layer]['mask_crops'] is not None:
+                return frame_prompt.prompts[self.layer]['mask_crops']
+
+        return None
+
+    def mask_timesteps(self):
+        for frame_prompt in self.prompts:
+            if frame_prompt.prompts[self.layer]['mask_timesteps'] is not None:
+                return frame_prompt.prompts[self.layer]['mask_timesteps']
+
+        return None
 
     def __iter__(self):
         self.layer = 0
@@ -139,10 +198,14 @@ class MaskedPromptHelper:
         embeddings = self.embeddings()
         latent_mask = self.mask()
         controlnet_scale = self.controlnet_scale()
+        loras = self.loras()
+        mask_latents = self.mask_latents()
+        mask_crops = self.mask_crops()
+        mask_timesteps = self.mask_timesteps()
 
         self.layer += 1
 
-        return embeddings, latent_mask, controlnet_scale
+        return embeddings, latent_mask, controlnet_scale, loras, mask_latents, mask_crops, mask_timesteps
 
 @dataclass
 class AnimationPipelineOutput(BaseOutput):
@@ -247,23 +310,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
         )
 
         self.latent_cache = {}
-
-        self.freq_filter = None
-
-    @torch.no_grad()
-    def init_filter(self, video_length, height, width, filter_params):
-        # initialize frequency filter for noise reinitialization
-        batch_size = 1
-        num_channels_latents = self.unet.in_channels
-        filter_shape = [
-            batch_size,
-            num_channels_latents,
-            video_length,
-            height // self.vae_scale_factor,
-            width // self.vae_scale_factor
-        ]
-        self.freq_filter = get_freq_filter(filter_shape, device=self._execution_device, params=filter_params)
-
 
     def update_embeddings(self):
         if not self.scan_inversions:
@@ -440,6 +486,15 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
               prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt
           )
         return text_embeddings
+
+    def get_tokens(self, prompt):
+        text_inputs = self.tokenizer(
+            prompt,
+            max_length=self.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        return text_inputs.input_ids
 
     def _encode_prompt_orig(self, prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt):
         batch_size = len(prompt) if isinstance(prompt, list) else 1
@@ -717,6 +772,10 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
 
         return image
 
+    def run_safety_checker(self, image, device, dtype):
+        has_nsfw_concept = None
+        return image, has_nsfw_concept
+
     def prepare_latents(self,
             init_image,
             init_image_mask,
@@ -828,8 +887,10 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                 self.noise = noise
 
                 if init_latents is None:
+                    logger.debug("Using random noise")
                     latents = noise
                 else:
+                    logger.debug("Using init_latents noise")
                     latents = self.scheduler.add_noise(init_latents, noise, timestep)
 
                     noise = torch.randn(shape, generator=generator, device=rand_device, dtype=dtype).to(self.vae.device)
@@ -841,6 +902,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
                         latents[:, :, frame, :, :] += (noise[:, :, frame, :, :] * init_alpha)
 
         else:
+            logger.debug("Using latents")
             if latents.shape != shape:
                 raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
 
@@ -946,6 +1008,8 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
 
         masked_prompts = [None for x in range(video_length)]
 
+        self.tokens = {}
+
         for i in range(video_length):
             if isinstance(prompt, str):
                 masked_prompts[i] = MaskedPrompt(prompt, negative_prompt, width, height, controlnet_scale=controlnet_conditioning_scale)
@@ -971,12 +1035,19 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
         for i, masked_prompt in enumerate(masked_prompts):
             if masked_prompt != None:
                 for prompt in masked_prompt.prompts:
+
+                    if prompt['prompt'] not in self.tokens:
+                        self.tokens[prompt['prompt']] = self.get_tokens(prompt['prompt']).tolist()
+
                     prompt['embeddings'] = self._encode_prompt(
                         compel,
                         prompt['prompt'], device, num_videos_per_prompt,
                         do_classifier_free_guidance, prompt['negative_prompt'],
                         lora_scale=text_encoder_lora_scale,
                     )
+
+        for t in self.tokens:
+            logger.debug("Tokens %s, %s", t, self.tokens[t])
 
         filled_masked_prompts = []
         last_masked_prompt = None
@@ -989,7 +1060,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
             filled_masked_prompts.append(masked_prompt)
 
         return MaskedPromptHelper(filled_masked_prompts, device)
-
 
     @torch.no_grad()
     def __call__(
@@ -1051,9 +1121,10 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
         read_latent_cache: bool = False,
         latent_cache_size: int = 0,
 
-        freeinit_num_iters: int = 1,
-        freeinit_use_fast_sampling: bool = False,
-        freeinit_filter_params: dict = None,
+        latents_freq_filter: bool = False,
+
+        adain_style_in_latents = None,
+        adain_style_out_latents = None,
 
         **kwargs,
     ):
@@ -1074,23 +1145,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
         # Default height and width to unet
         height = height or self.unet.config.sample_size * self.vae_scale_factor
         width = width or self.unet.config.sample_size * self.vae_scale_factor
-
-        if freeinit_num_iters > 1:
-            if freeinit_filter_params is None:
-                freeinit_filter_params = {
-                    'method': 'butterworth',
-                    'n': 4,
-                    'd_s': 0.25,
-                    'd_t': 0.25,
-                }
-
-            self.init_filter(
-                width               = width,
-                height              = height,
-                video_length        = temporal_context,
-                filter_params       = freeinit_filter_params,
-            )
-
 
         # Check inputs. Raise error if not correct
         # self.check_inputs(prompt, height, width, callback_steps)
@@ -1218,8 +1272,12 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
 
         latents = latents.to(device)
 
+        if adain_style_in_latents is not None:
+            latents = adaptive_instance_normalization(latents, adain_style_in_latents)
+
         # Prepare extra step kwargs.
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
+
         total = sum(
             len(list(seq_policy(i, num_inference_steps, latents.shape[2], temporal_context, strides, overlap)))
             for i in range(len(timesteps))
@@ -1237,144 +1295,111 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoad
 
             self.controlnet.to(device, dtype=latents.dtype)
 
-        # Sampling with FreeInit.
-        for freeinit_iter in range(freeinit_num_iters):
-            #  FreeInit ------------------------------------------------------------------
-            if freeinit_iter == 0:
-                initial_noise = latents.detach().clone()
-            else:
-                # 1. DDPM Forward with initial noise, get noisy latents z_T
-                diffuse_timestep = self.scheduler.config.num_train_timesteps - 1 # diffuse to t=999 noise level
-                diffuse_timesteps = torch.full((batch_size,),int(diffuse_timestep))
-                diffuse_timesteps = diffuse_timesteps.long()
-                z_T = self.scheduler.add_noise(
-                    original_samples=latents.to(device),
-                    noise=initial_noise.to(device),
-                    timesteps=diffuse_timesteps.to(device)
-                )
-                # 2. create random noise z_rand for high-frequency
-                z_rand = torch.randn(
-                        (batch_size * num_videos_per_prompt,
-                            num_channels_latents,
-                            temporal_context,
-                            height // self.vae_scale_factor,
-                            width // self.vae_scale_factor
-                            ), device=device)
+        initial_noise = latents.detach().clone()
 
-                # 3. Roise Reinitialization
-                latents = freq_mix_3d(z_T.to(dtype=torch.float32), z_rand, LPF=self.freq_filter)
-                latents = latents.to(latents_dtype)
+        # Denoising loop
+        num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
+        with self.progress_bar(total=total) as progress_bar:
+            desc = []
+            if 'desc' in kwargs:
+                desc.append(kwargs['desc'])
 
-            # Coarse-to-Fine Sampling for Fast Inference (can lead to sub-optimal results)
-            if freeinit_use_fast_sampling:
-                current_num_inference_steps= int(num_inference_steps / num_iters * (freeinit_iter + 1))
-                self.scheduler.set_timesteps(current_num_inference_steps, device=device)
-                timesteps = self.scheduler.timesteps
-            #  --------------------------------------------------------------------------
+            if len(desc) > 0:
+                progress_bar.set_description(",".join(desc))
 
-            # Denoising loop
-            num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
-            with self.progress_bar(total=total) as progress_bar:
-                desc = []
-                if 'desc' in kwargs:
-                    desc.append(kwargs['desc'])
+            for i, t in enumerate(timesteps):
 
-                if freeinit_num_iters > 1:
-                    desc.append(f"freeinit {freeinit_iter+1}/{freeinit_num_iters}")
+                if latent_cache_size > 0:
+                    latent_cache = latents[:,:,-latent_cache_size:,:,:].clone().cpu()
 
-                if len(desc) > 0:
-                    progress_bar.set_description(",".join(desc))
+                if read_latent_cache and latent_cache_size > 0:
+                    for cache_latent_idx in range(latent_cache_size):
+                        latents[:,:,cache_latent_idx,:,:] = \
+                            self.latent_cache[t.item()][:,:,cache_latent_idx,:,:] \
+                                .clone().to(self.unet.device)
 
-                for i, t in enumerate(timesteps):
+                if latent_cache_size > 0:
+                    self.latent_cache[t.item()] = latent_cache
 
-                    if latent_cache_size > 0:
-                        latent_cache = latents[:,:,-latent_cache_size:,:,:].clone().cpu()
+                noise_pred = torch.zeros((latents.shape[0] * (2 if do_classifier_free_guidance else 1),
+                                          *latents.shape[1:]), device=latents.device, dtype=latents_dtype)
+                counter = torch.zeros((1, 1, latents.shape[2], 1, 1), device=latents.device, dtype=latents_dtype)
+                for seq in seq_policy(i, num_inference_steps, latents.shape[2], temporal_context, strides, overlap):
+                    # expand the latents if we are doing classifier free guidance
+                    latent_model_input = latents[:, :, seq].to(device)\
+                        .repeat(2 if do_classifier_free_guidance else 1, 1, 1, 1, 1)
+                    latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-                    if read_latent_cache and latent_cache_size > 0:
-                        for cache_latent_idx in range(latent_cache_size):
-                            latents[:,:,cache_latent_idx,:,:] = \
-                                self.latent_cache[t.item()][:,:,cache_latent_idx,:,:] \
-                                    .clone().to(self.unet.device)
+                    down_block_res_samples = None
+                    mid_block_res_sample = None
 
-                    if latent_cache_size > 0:
-                        self.latent_cache[t.item()] = latent_cache
+                    prompt_idx = 0
+                    noise_preds = []
+                    with torch.autocast('cuda', enabled=fp16, dtype=torch.float16):
 
-                    noise_pred = torch.zeros((latents.shape[0] * (2 if do_classifier_free_guidance else 1),
-                                              *latents.shape[1:]), device=latents.device, dtype=latents_dtype)
-                    counter = torch.zeros((1, 1, latents.shape[2], 1, 1), device=latents.device, dtype=latents_dtype)
-                    for seq in seq_policy(i, num_inference_steps, latents.shape[2], temporal_context, strides, overlap):
-                        # expand the latents if we are doing classifier free guidance
-                        latent_model_input = latents[:, :, seq].to(device)\
-                            .repeat(2 if do_classifier_free_guidance else 1, 1, 1, 1, 1)
-                        latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+                        parted_prompts = masked_prompts.part(seq)
+                        for embeddings, latent_mask, controlnet_scale, loras, mask_latents, mask_crops, mask_timesteps in parted_prompts:
 
-                        down_block_res_samples = None
-                        mid_block_res_sample = None
+                            if self.controlnet != None and controlnet_scale[0] > 0:
+                                down_block_res_samples, mid_block_res_sample = self.calc_cnet_residuals(
+                                    i,
+                                    t,
+                                    seq,
+                                    embeddings,
+                                    image,
+                                    latent_model_input,
+                                    controlnet_keep,
+                                    [controlnet_scale[0]]*len(self.controlnet.nets),
+                                    guess_mode,
+                                    min(temporal_context, video_length),
+                                    do_classifier_free_guidance)
 
-                        prompt_idx = 0
-                        noise_preds = []
-                        with torch.autocast('cuda', enabled=fp16, dtype=torch.float16):
+                            # predict the noise residual
+                            pred = self.unet(latent_model_input,
+                                             t,
+                                             cross_attention_kwargs=cross_attention_kwargs,
+                                             down_block_additional_residuals=down_block_res_samples,
+                                             mid_block_additional_residual=mid_block_res_sample,
+                                             encoder_hidden_states=embeddings)
 
-                            parted_prompts = masked_prompts.part(seq)
-                            for embeddings, latent_mask, controlnet_scale in parted_prompts:
+                            predict = pred.sample.to(dtype=latents_dtype, device=device)
+                            predict = predict * latent_mask
 
+                            noise_pred[:, :, seq] += predict
+                            prompt_idx += 1
 
-                                if self.controlnet != None and controlnet_scale[0][0] > 0:
-                                    down_block_res_samples, mid_block_res_sample = self.calc_cnet_residuals(
-                                        i,
-                                        t,
-                                        seq,
-                                        embeddings,
-                                        image,
-                                        latent_model_input,
-                                        controlnet_keep,
-                                        [controlnet_scale[0][0]]*len(self.controlnet.nets),
-                                        guess_mode,
-                                        temporal_context,
-                                        do_classifier_free_guidance)
+                    counter[:, :, seq] += 1
+                    progress_bar.update()
 
-                                # predict the noise residual
-                                pred = self.unet(latent_model_input,
-                                                 t,
-                                                 cross_attention_kwargs=cross_attention_kwargs,
-                                                 down_block_additional_residuals=down_block_res_samples,
-                                                 mid_block_additional_residual=mid_block_res_sample,
-                                                 encoder_hidden_states=embeddings)
+                # perform guidance
+                if do_classifier_free_guidance:
+                    noise_pred_uncond, noise_pred_text = (noise_pred / counter).chunk(2)
+                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
-                                predict = pred.sample.to(dtype=latents_dtype, device=device)
-                                predict = predict * latent_mask
-                                noise_pred[:, :, seq] += predict
-                                prompt_idx += 1
+                # compute the previous noisy sample x_t -> x_t-1
+                latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs).prev_sample
 
-                        counter[:, :, seq] += 1
-                        progress_bar.update()
+                if self.init_image_mask is not None:
+                    init_latents_proper = self.init_latents
 
-                    # perform guidance
-                    if do_classifier_free_guidance:
-                        noise_pred_uncond, noise_pred_text = (noise_pred / counter).chunk(2)
-                        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                    if i < len(timesteps) - 1:
+                        noise_timestep = timesteps[i + 1]
+                        init_latents_proper = self.scheduler.add_noise(
+                            init_latents_proper, self.noise, torch.tensor([noise_timestep])
+                        )
 
-                    # compute the previous noisy sample x_t -> x_t-1
-                    latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs).prev_sample
+                    latents = (1 - self.init_image_mask) * init_latents_proper + self.init_image_mask * latents
 
-                    if self.init_image_mask is not None:
-                        init_latents_proper = self.init_latents
-
-                        if i < len(timesteps) - 1:
-                            noise_timestep = timesteps[i + 1]
-                            init_latents_proper = self.scheduler.add_noise(
-                                init_latents_proper, self.noise, torch.tensor([noise_timestep])
-                            )
-
-                        latents = (1 - self.init_image_mask) * init_latents_proper + self.init_image_mask * latents
-
-                    # call the callback, if provided
-                    if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
-                        if callback is not None and i % callback_steps == 0:
-                            callback(i, t, latent_model_input)
+                # call the callback, if provided
+                if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                    if callback is not None and i % callback_steps == 0:
+                        callback(i, t, latent_model_input)
 
         if self.init_image_mask is not None:
             latents = (1 - self.init_image_mask) * self.init_latents + self.init_image_mask * latents
+
+        if adain_style_out_latents is not None:
+            latents = adaptive_instance_normalization(latents, adain_style_out_latents)
 
         if output_type == 'latents':
             return latents
