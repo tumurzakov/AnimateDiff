@@ -1,1 +1,2 @@
-from .pipelines import MaskedPrompt, AnimationPipeline
+from .pipelines import AnimationPipeline
+from .utils.masked_prompt import MaskedPrompt
